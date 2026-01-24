@@ -1,0 +1,9 @@
+{
+    "GROQ_KEY": "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",
+    "apps": {},
+    "routines": {},
+    "triggers": [],
+    "themes": {},
+    "model_txt_cloud": "llama-3.3-70b-versatile",
+    "model_vis_cloud": "llama-3.2-11b-vision-preview"
+}
