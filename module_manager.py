@@ -39,6 +39,7 @@ class ModuleManager:
 
     def load_modules(self):
         """Escaneia /modules e carrega tudo."""
+        import os # Reforço local
         root_dir = Path(__file__).resolve().parent
         # Se não encontrar a pasta modules aqui, tenta subir um nível (caso esteja em /core)
         if not (root_dir / "modules").exists():
@@ -178,10 +179,6 @@ class ModuleManager:
     def release_focus(self):
         with self.focus_lock:
             self.focused_module = None
-
-    def get_module(self, name):
-        """Retorna uma instância de módulo pelo nome."""
-        return self.module_map.get(name.lower())
 
     def get_module(self, name):
         """Retorna uma instância de módulo pelo nome."""

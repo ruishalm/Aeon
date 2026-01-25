@@ -1,4 +1,4 @@
-import sys
+import os
 import os
 import threading
 
@@ -21,8 +21,6 @@ if __name__ == "__main__":
             app.mainloop()
         else:
             from PyQt6.QtWidgets import QApplication
-            
-            # Tenta importar da pasta core ou da raiz (flexibilidade durante a migração)
             try:
                 from core.gui_sphere import AeonSphere
             except ImportError:
@@ -37,7 +35,6 @@ if __name__ == "__main__":
 
     except Exception as e:
         print(f"\n[ALERTA] Falha ao iniciar interface principal: {e}")
-        
         if not use_dashboard:
             print("[BOOT] Ativando Protocolo de Segurança: Iniciando GUI Clássica (Fallback)...")
             try:

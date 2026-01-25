@@ -1,9 +1,10 @@
 import os
 import sys
+import time
 import customtkinter as ctk
 import psutil
 import threading
-import s caminho para encontrar os módulos
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from core.module_manager import ModuleManager
@@ -33,12 +34,14 @@ ctk.set_default_color_theme("dark-blue")
 class AeonGUI(ctk.CTk):
     def __init__(self):
         super().__init__()
+        import os # Importação blindada local
         
         self.config_manager = ConfigManager()
         cfg = getattr(self.config_manager, 'config', {}) 
         self.io_handler = IOHandler(cfg, None)
         
         try:
+            print(f"[DEBUG] Carregando Dashboard de: {__file__}")
             # Agora o Brain aceita o ConfigManager diretamente e o installer é opcional
             self.brain = Brain(self.config_manager)
         except Exception as e:
@@ -307,13 +310,14 @@ class AeonGUI(ctk.CTk):
         except: pass
 
     def loop_vitals(self):
-        if not self.running: return
-        try:
-            cpu = psutil.cpu_percent(interval=None)
-            ram = psutil.virtual_memory().percent
-            self.after(0, self.update_vitals, cpu, ram)
-        except: pass
-        self.after(1000, self.loop_vitals)
+        while self.running:
+            try:
+                cpu = psutil.cpu_percent(interval=1)
+                ram = psutil.virtual_memory().percent
+                self.after(0, self.update_vitals, cpu, ram)
+            except:
+                pass
+            time.sleep(0.5)
 
     def update_vitals(self, cpu, ram):
         try:

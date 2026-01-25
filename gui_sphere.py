@@ -1,5 +1,5 @@
 import os
-import sys
+import os
 import math
 import random
 import ctypes
@@ -55,6 +55,7 @@ class AeonSphere(QMainWindow):
             
         self.context_manager = ContextManager()
         
+        import os # Reforço local
         root_dir = os.path.dirname(os.path.abspath(__file__))
         # Se estiver dentro de /core, sobe um nível para achar a raiz real
         if os.path.basename(root_dir) == "core":
