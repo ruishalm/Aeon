@@ -116,7 +116,8 @@ class KabbalahInterpreter:
         salmo, gematria_total = self.calcular_tehilim(dados_cartas)
         visual_hebraico = " - ".join(string_hebraica)
         
-        prompt =  "--- ESTRUTURA DAS OTIOT (LETRAS) ---\n"
+        prompt = ""
+        prompt += "--- ESTRUTURA DAS OTIOT (LETRAS) ---\n"
         prompt += f"RAIZ: [ {visual_hebraico} ]\n"
         prompt += "\n".join(cartas_detalhadas)
         prompt += f"\n\n--- CÁLCULOS GEMÁTRICOS ---\n"

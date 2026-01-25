@@ -1,0 +1,14 @@
+customtkinter
+pygame
+edge-tts
+ollama
+groq
+requests
+beautifulsoup4
+feedparser
+googlesearch-python
+pygetwindow
+pyautogui
+pillow
+psutil
+pyttsx3

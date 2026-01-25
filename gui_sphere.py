@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 import math
 import random
 import ctypes
@@ -55,8 +55,10 @@ class AeonSphere(QMainWindow):
             
         self.context_manager = ContextManager()
         
-        # Se o arquivo estiver na RAIZ, a raiz é o próprio diretório do arquivo
         root_dir = os.path.dirname(os.path.abspath(__file__))
+        # Se estiver dentro de /core, sobe um nível para achar a raiz real
+        if os.path.basename(root_dir) == "core":
+            root_dir = os.path.dirname(root_dir)
         self.workspace_path = os.path.join(root_dir, "workspace")
         os.makedirs(self.workspace_path, exist_ok=True)
 

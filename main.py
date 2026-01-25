@@ -21,7 +21,12 @@ if __name__ == "__main__":
             app.mainloop()
         else:
             from PyQt6.QtWidgets import QApplication
-            from core.gui_sphere import AeonSphere
+            
+            # Tenta importar da pasta core ou da raiz (flexibilidade durante a migração)
+            try:
+                from core.gui_sphere import AeonSphere
+            except ImportError:
+                from gui_sphere import AeonSphere
             
             print("[BOOT] Iniciando Interface Neural (Esfera)...")
             qt_app = QApplication(sys.argv)

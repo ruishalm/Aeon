@@ -39,9 +39,16 @@ class ModuleManager:
 
     def load_modules(self):
         """Escaneia /modules e carrega tudo."""
-        # Se o arquivo estiver na RAIZ, o root_dir é o parent. Se estiver em CORE, é o parent.parent
         root_dir = Path(__file__).resolve().parent
+        # Se não encontrar a pasta modules aqui, tenta subir um nível (caso esteja em /core)
+        if not (root_dir / "modules").exists():
+            root_dir = root_dir.parent
         modules_dir = root_dir / "modules"
+        
+        if not modules_dir.exists():
+            log_display(f"⚠ Erro: Pasta de módulos não encontrada em {modules_dir}")
+            return
+
         log_display(f"Carregando módulos de: {modules_dir}")
 
         for item in modules_dir.iterdir():
@@ -68,8 +75,8 @@ class ModuleManager:
                 if inspect.isclass(obj) and issubclass(obj, AeonModule) and obj is not AeonModule:
                     module_instance = obj(self.core_context)
                     if not module_instance.check_dependencies():
-                        log_display(f"  ⚠ Dependências falharam para {module_instance.name}")
-                        return
+                        log_display(f"  ⚠ Dependências falharam para {name} em {module_name}")
+                        continue
 
                     if module_instance.on_load():
                         self.modules.append(module_instance)
@@ -171,6 +178,10 @@ class ModuleManager:
     def release_focus(self):
         with self.focus_lock:
             self.focused_module = None
+
+    def get_module(self, name):
+        """Retorna uma instância de módulo pelo nome."""
+        return self.module_map.get(name.lower())
 
     def get_module(self, name):
         """Retorna uma instância de módulo pelo nome."""

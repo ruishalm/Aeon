@@ -1,11 +1,9 @@
+import os
+import sys
 import customtkinter as ctk
 import psutil
 import threading
-import sys
-import os
-import subprocess
-
-# Ajusta caminho para encontrar os módulos
+import s caminho para encontrar os módulos
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from core.module_manager import ModuleManager
