@@ -4,6 +4,7 @@ import base64
 from PIL import Image
 from io import BytesIO
 import datetime
+import os
 
 def log_display(msg):
     print(f"[BRAIN] {msg}")
@@ -27,15 +28,16 @@ class AeonBrain:
         self.local_ready = False
         self.available_models = []
         
-        self.groq_api_key = self.config.get("GROQ_KEY")
+        # Tenta carregar variáveis de ambiente do arquivo .env
+        try:
+            from dotenv import load_dotenv
+            env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+            load_dotenv(dotenv_path=env_path)
+        except ImportError:
+            pass # Se o pacote não estiver instalado ainda, segue sem ele
         
-        # INJEÇÃO DE EMERGÊNCIA: Aplica a chave nova fornecida
-        new_valid_key = "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"
-        if self.groq_api_key != new_valid_key:
-            self.groq_api_key = new_valid_key
-            if self.config_manager:
-                self.config_manager.set_system_data("GROQ_KEY", new_valid_key)
-                log_display("Chave atualizada automaticamente para a nova versão.")
+        # Prioridade: Variável de Ambiente (.env) > Configuração JSON
+        self.groq_api_key = os.getenv("GROQ_KEY") or self.config.get("GROQ_KEY")
 
         # AUTO-CORREÇÃO: Remove lixo comum de copy-paste (ex: 'GROQ_KEY = gsk_...')
         if self.groq_api_key and isinstance(self.groq_api_key, str):
@@ -76,7 +78,17 @@ class AeonBrain:
     def reconectar(self):
         """Tenta (re)conectar ao serviço de nuvem (Groq)."""
         # Atualiza a chave da memória caso tenha mudado
-        if self.config_manager:
+        # Recarrega .env para permitir troca de chave sem reiniciar e garantir leitura
+        try:
+            from dotenv import load_dotenv
+            env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+            load_dotenv(dotenv_path=env_path, override=True)
+        except ImportError: pass
+
+        # Prioridade: .env > ConfigManager > Config Dict
+        if os.getenv("GROQ_KEY"):
+             self.groq_api_key = os.getenv("GROQ_KEY")
+        elif self.config_manager:
              self.groq_api_key = self.config_manager.get_system_data("GROQ_KEY")
         elif isinstance(self.config, dict):
              self.groq_api_key = self.config.get("GROQ_KEY")
@@ -106,7 +118,7 @@ class AeonBrain:
                 log_display(f"Falha ao conectar na Nuvem: {e}")
             return False
 
-    def pensar(self, prompt: str, historico_txt: str = "", user_prefs: dict = {}, system_override: str = None, capabilities: str = "", long_term_context: str = "") -> str:
+    def pensar(self, prompt: str, historico_txt: str = "", user_prefs: dict = {}, system_override: str = None, capabilities: str = "", long_term_context: str = "", library_context: str = "") -> str:
         """
         Processa um prompt com Auto-Healing de conexão.
         """
@@ -127,6 +139,9 @@ Se você não souber uma informação, admita. Não invente dados.
 CAPACIDADES DO SISTEMA:
 Você possui controle total sobre o hardware (CÂMERA, MICROFONE) e o sistema operacional Windows através de seus módulos técnicos. Se o usuário pedir para ver algo ou ligar a câmera, utilize o módulo de Gestos.
 {capabilities}
+
+CONTEXTO DA BIBLIOTECA (LIVROS LOCAIS):
+{"Nenhum dado relevante na biblioteca." if not library_context else library_context}
 
 MEMÓRIAS RELEVANTES DO PASSADO:
 {"Nenhuma memória relevante encontrada." if not long_term_context else long_term_context}

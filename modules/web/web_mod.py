@@ -24,18 +24,13 @@ class WebModule(AeonModule):
         self.triggers = [
             "pesquise por", "procure por", "o que é", "quem é",
             "tempo", "clima", "notícias", "manchetes",
-            "http:", "https://", "www."
+            "arquive o site", "http:", "https://", "www."
         ]
-        # Fontes de notícias, poderiam vir do config_manager no futuro
-        self.rss_feeds = {
-            "G1": "https://g1.globo.com/rss/g1/",
-            "BBC": "http://feeds.bbci.co.uk/news/rss.xml"
-        }
 
     @property
     def dependencies(self) -> List[str]:
-        """Web depende de brain para processamento de respostas."""
-        return ["brain"]
+        """Web depende de brain para processamento e biblioteca para arquivamento."""
+        return ["brain", "biblioteca"]
 
     @property
     def metadata(self) -> Dict[str, str]:
@@ -62,52 +57,75 @@ class WebModule(AeonModule):
         brain = self.core_context.get("brain")
         if not brain: return "Cérebro não encontrado."
 
-        # Pesquisa na Web
+        cmd_lower = command.lower()
+
+        # 1. Comando de arquivamento (mais específico)
+        if cmd_lower.startswith("arquive o site"):
+            url = command.replace("arquive o site", "").strip()
+            if not url.startswith("http"):
+                return "Por favor, forneça uma URL válida para arquivar."
+            
+            log_display(f"Iniciando arquivamento do site: {url}")
+            biblioteca = self.core_context.get("biblioteca")
+            if not biblioteca:
+                return "Módulo Biblioteca não encontrado. Não posso arquivar."
+            
+            titulo, conteudo = self.web_search(url)
+
+            if titulo == "Erro":
+                return conteudo # Retorna a mensagem de erro
+
+            if not conteudo:
+                return f"Não consegui extrair conteúdo do site {url}."
+
+            return biblioteca.arquivar_texto(titulo, conteudo)
+
+        # 2. Pesquisa na Web
         search_triggers = ["pesquise por", "procure por", "o que é", "quem é"]
-        if any(command.startswith(t) for t in search_triggers):
+        if any(cmd_lower.startswith(t) for t in search_triggers):
             query = command
             for t in search_triggers:
-                query = query.replace(t, "", 1) # Apenas a primeira ocorrência
+                query = query.replace(t, "", 1)
             query = query.strip()
             
-            contexto = self.web_search(query)
-            if "erro" in contexto.lower(): return contexto
+            _, contexto = self.web_search(query) # Ignoramos o título aqui
+            if not contexto: return "Não encontrei conteúdo para essa pesquisa."
+            if "erro ao processar" in contexto: return contexto
             
             prompt_final = f"Com base no seguinte texto, responda de forma concisa à pergunta: '{query}'\n\nTexto: {contexto}"
             return brain.pensar(prompt_final)
 
-        # Clima
-        if "tempo em" in command or "clima em" in command:
-            cidade = command.split(" em ")[-1].strip()
-            return self.obter_clima(cidade)
-        elif "como está o tempo" in command or "previsão do tempo" in command:
-            return self.obter_clima() # Tenta autodetectar
-
-        # Notícias
-        if "notícias" in command or "manchetes" in command:
-            fonte = "G1" # Padrão
-            for f in self.rss_feeds.keys():
-                if f.lower() in command:
-                    fonte = f
-                    break
-            return self.obter_noticias(fonte)
-
-        # Resumo de URL
-        if "http:" in command or "https:" in command or "www." in command:
-            # Extrai a URL do comando
-            match = re.search(r'(https?://[^\s]+)', command)
+        # 3. Resumo de URL (genérico)
+        if "http:" in cmd_lower or "https:" in cmd_lower or "www." in cmd_lower:
+            match = re.search(r'(https?://[^\s]+)', cmd_lower)
             if match:
                 url = match.group(0)
-                contexto = self.web_search(url)
-                if "erro" in contexto.lower(): return contexto
+                _, contexto = self.web_search(url) # Ignoramos o título aqui
+                if not contexto: return f"Não consegui extrair conteúdo do site {url}."
+                if "erro ao processar" in contexto: return contexto
 
                 prompt_final = f"Resuma o seguinte texto de forma concisa:\n\n{contexto}"
                 return brain.pensar(prompt_final)
 
+        # 4. Outros comandos (Clima, Notícias)
+        if "tempo em" in cmd_lower or "clima em" in cmd_lower:
+            cidade = cmd_lower.split(" em ")[-1].strip()
+            return self.obter_clima(cidade)
+        elif "como está o tempo" in cmd_lower or "previsão do tempo" in cmd_lower:
+            return self.obter_clima()
+
+        if "notícias" in cmd_lower or "manchetes" in cmd_lower:
+            fonte = "G1"
+            for f in self.rss_feeds.keys():
+                if f.lower() in cmd_lower:
+                    fonte = f
+                    break
+            return self.obter_noticias(fonte)
+
         return ""
 
-    def web_search(self, query: str) -> str:
-        """Busca uma query ou extrai conteúdo de uma URL."""
+    def web_search(self, query: str) -> (str, str):
+        """Busca uma query ou extrai título e conteúdo de uma URL. Retorna (título, conteúdo)."""
         log_display(f"Processando Web: {query[:60]}")
         try:
             url = query if query.startswith("http") else list(search(query, num_results=1, lang="pt"))[0]
@@ -117,15 +135,26 @@ class WebModule(AeonModule):
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
-            for tag in ['nav', 'footer', 'aside', 'script', 'style']:
+            
+            # Extrai o título
+            title = soup.find('title').get_text() if soup.find('title') else "Sem Título"
+            
+            # Limpa o conteúdo
+            for tag in ['nav', 'footer', 'aside', 'script', 'style', 'header', 'form']:
                 for s in soup(tag):
                     s.decompose()
             
-            text_content = ' '.join(p.get_text() for p in soup.find_all('p'))
-            return text_content[:4000] # Limita para não sobrecarregar a IA
+            # Pega o texto de tags relevantes, como 'p', 'article', 'h1', 'h2', 'h3'
+            text_blocks = [p.get_text() for p in soup.find_all(['p', 'h1', 'h2', 'h3', 'article'])]
+            text_content = ' '.join(text_blocks)
+            text_content = re.sub(r'\s+', ' ', text_content).strip() # Limpa espaços em branco
+            
+            return title.strip(), text_content[:8000] # Limite maior para arquivamento
             
         except Exception as e:
-            return f"Ocorreu um erro ao processar a requisição web: {e}"
+            error_msg = f"Ocorreu um erro ao processar a requisição web: {e}"
+            log_display(error_msg)
+            return "Erro", error_msg
 
     def obter_clima(self, cidade: str = '') -> str:
         try:

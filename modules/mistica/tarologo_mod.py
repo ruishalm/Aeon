@@ -1,5 +1,6 @@
 import random
 from modules.base_module import AeonModule
+from .chaos_engine import ChaosEngine
 
 # Lista completa das 78 cartas do Tarot de Rider-Waite
 TAROT_CARDS = {
@@ -27,6 +28,7 @@ class TarologoModule(AeonModule):
         # Triggers para ativar a leitura
         self.triggers = ["ler as cartas", "jogar tarot", "preveja meu futuro", "leia meu futuro", "consulta ao tarot"]
         self.full_deck = self._get_full_deck()
+        self.chaos = ChaosEngine()
 
     @property
     def metadata(self) -> dict:
@@ -44,9 +46,9 @@ class TarologoModule(AeonModule):
         return deck
 
     def _draw_cards(self, num_cards=3):
-        """Sorteia um número de cartas do baralho, sem repetição."""
-        random.shuffle(self.full_deck)
-        return random.sample(self.full_deck, num_cards)
+        """Sorteia um número de cartas do baralho, sem repetição, usando o ChaosEngine."""
+        shuffled_deck = self.chaos.shuffle_deck(self.full_deck)
+        return shuffled_deck[:num_cards]
 
     def process(self, command: str) -> str:
         """
@@ -86,8 +88,8 @@ class TarologoModule(AeonModule):
         
         try:
             # Envia para o cérebro para interpretação
-            response = self.get_brain().predict(prompt)
-            return response
+            interpretacao = self.get_brain().pensar(prompt=prompt, historico_txt="")
+            return interpretacao
         except Exception as e:
             print(f"[TAROLOGO][ERRO] Falha ao contatar o cérebro para interpretação: {e}")
             return "Houve uma perturbação no plano astral. Não consegui completar a leitura."

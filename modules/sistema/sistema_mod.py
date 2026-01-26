@@ -27,7 +27,9 @@ class SistemaModule(AeonModule):
             "status do sistema", "uso de cpu", "desempenho do pc",
             "abre", "iniciar", "role para", "scroll",
             "crie uma pasta", "delete", "apague", "exclua",
-            "email", "sair", "desliga", "instalar pacote"
+            "email", "sair", "desliga", "instalar pacote",
+            "bateria", "nível de bateria", "desligar computador", "reiniciar computador",
+            "volume máximo", "volume mudo"
         ]
         self.pending_action = None
         self.indexed_apps = {}
@@ -144,14 +146,32 @@ class SistemaModule(AeonModule):
             webbrowser.open('mailto:')
             return "Abrindo seu cliente de e-mail."
 
-        # Sair do programa
-        if "sair" in command or "desliga" in command:
+        # Bateria
+        if "bateria" in command:
+            return self._check_battery()
+
+        # Desligamento do Computador (Real)
+        if "desligar computador" in command:
+            os.system("shutdown /s /t 10")
+            return "Iniciando desligamento do sistema em 10 segundos."
+            
+        if "reiniciar computador" in command:
+            os.system("shutdown /r /t 10")
+            return "Reiniciando o sistema em 10 segundos."
+
+        # Sair do programa Aeon (App)
+        if "sair" in command or ("desliga" in command and "computador" not in command):
             io_handler = self.core_context.get("io_handler")
             if io_handler:
                 io_handler.falar("Até logo.")
             import os as os_module
             os_module._exit(0)
             return ""
+
+        # Volume (Placeholder/Básico)
+        if "volume" in command:
+            # Implementação robusta requer pycaw, aqui deixamos o aviso ou comando básico
+            return "Controle de volume requer configuração adicional de bibliotecas de áudio."
 
         # Instalar pacote Python
         if "instalar pacote" in command:
@@ -182,6 +202,18 @@ class SistemaModule(AeonModule):
         cpu = psutil.cpu_percent(interval=1)
         ram = psutil.virtual_memory().percent
         return f"Uso da CPU em {cpu}% e memória RAM em {ram}%."
+
+    def _check_battery(self):
+        if not hasattr(psutil, "sensors_battery"):
+            return "Não consigo ler sensores de bateria neste sistema."
+            
+        battery = psutil.sensors_battery()
+        if battery:
+            plugged = "conectado à energia" if battery.power_plugged else "usando bateria"
+            percent = battery.percent
+            return f"A bateria está em {percent}% e {plugged}."
+        else:
+            return "Este computador não parece ter uma bateria."
 
     def deletar_item(self, item_path: str, confirmado: bool = False) -> str:
         caminho_completo = os.path.abspath(item_path)

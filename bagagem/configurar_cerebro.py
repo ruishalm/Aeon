@@ -13,66 +13,35 @@ def setup():
     print("\n" + "="*50)
     print("🧠  CONFIGURAÇÃO DO CÉREBRO AEON")
     print("="*50)
+
+    # Define o caminho para o arquivo .env na raiz do projeto (assumindo que 'bagagem' está um nível abaixo da raiz)
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    dotenv_path = os.path.join(project_root, ".env")
+
+    print("\n" + "-"*50)
+    print("☁️  Configuração do Cérebro Nuvem (Groq)")
+    print("-" * 50)
+    print("\nℹ️  A chave da API do Groq agora é gerenciada por um arquivo .env na raiz do projeto.")
+    print(f"   Isso torna sua chave mais segura.")
+    print(f"\n📍 Local do arquivo: {dotenv_path}")
     
+    print("\n📝 PARA CONFIGURAR SUA CHAVE:")
+    print("   1. Abra o arquivo .env (se não existir, crie-o).")
+    print("   2. Adicione ou edite a seguinte linha, substituindo com sua chave:")
+    print('      GROQ_API_KEY="gsk_SUA_CHAVE_AQUI"')
+    
+    print("\n   O sistema irá carregar esta chave automaticamente ao iniciar.")
+    print("   Você pode gerar uma chave em: https://console.groq.com/keys")
+
+    # Tenta ler a chave apenas para mostrar o status
     try:
-        cm = ConfigManager()
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path)
+        current_key = os.environ.get("GROQ_API_KEY")
+        masked_key = f"{current_key[:8]}...{current_key[-4:]}" if current_key and len(current_key) > 10 else "NENHUMA/INVÁLIDA"
+        print(f"\n🔑 Status da chave no .env: {masked_key}")
     except Exception as e:
-        print(f"Erro ao carregar configurações: {e}")
-        return
-
-    print(f"\n📂 Arquivo de configuração: {cm.sys_path}")
-    
-    current_key = cm.get_system_data("GROQ_KEY")
-    
-    # AUTO-CORREÇÃO NO LOAD: Limpa a chave atual se estiver suja
-    if current_key and isinstance(current_key, str):
-        clean_current = current_key.replace('"', '').replace("'", "").strip()
-        if "=" in clean_current and "gsk_" in clean_current:
-            clean_current = clean_current.split("=")[-1].strip()
-            
-        if clean_current != current_key:
-            current_key = clean_current
-            cm.set_system_data("GROQ_KEY", current_key)
-            print("🧹 Chave atual corrigida automaticamente (removido lixo de formatação).")
-
-    masked_key = f"{current_key[:8]}...{current_key[-4:]}" if current_key and len(current_key) > 10 else "NENHUMA/INVÁLIDA"
-    print(f"🔑 Chave atual: {masked_key}")
-    
-    print("\n👉 Cole sua nova GROQ_KEY abaixo.")
-    print("   (Pressione ENTER vazio para abrir o site e gerar uma nova chave)")
-    new_key = input("> ").strip()
-    
-    if not new_key:
-        print("\nℹ️  Nenhuma chave inserida. Mantendo a configuração atual.")
-        return
-    
-    if new_key:
-        # Remove aspas extras se você copiou errado (ex: "gsk_...")
-        new_key = new_key.replace('"', '').replace("'", "")
-        
-        # Remove prefixo se o usuário copiou a linha inteira (ex: GROQ_KEY = gsk_...)
-        if "=" in new_key:
-            new_key = new_key.split("=")[-1].strip()
-        
-        if not new_key.startswith("gsk_"):
-            print("⚠️  AVISO: Essa chave não parece uma chave Groq válida (deve começar com 'gsk_').")
-            
-        print("⏳ Testando chave com a Groq...")
-        try:
-            from groq import Groq
-            client = Groq(api_key=new_key)
-            client.models.list()
-            print("✅ Chave VÁLIDA e funcionando!")
-            cm.set_system_data("GROQ_KEY", new_key)
-            print("✅ Chave salva com sucesso!")
-        except Exception as e:
-            print(f"❌ ERRO: Essa chave foi rejeitada pela Groq. Gere uma nova em https://console.groq.com/keys")
-            print(f"   Detalhe do erro: {e}")
-            print("   (A chave NÃO foi salva para evitar erros no sistema)")
-            print("   🌍 Abrindo site para gerar nova chave...")
-            webbrowser.open("https://console.groq.com/keys")
-    else:
-        print("ℹ️  Chave mantida.")
+        print(f"\n⚠️ Não consegui verificar a chave no .env. Certifique-se que o arquivo existe. Erro: {e}")
     
     print("\n" + "-"*50)
     print("🏠 Verificando Cérebro Local (Ollama)")

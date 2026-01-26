@@ -40,7 +40,7 @@ manager = ConnectionManager()
 @app.get("/")
 async def get_interface():
     # Garante que acha o arquivo mesmo se rodar de fora
-    return FileResponse(os.path.join("interface", "index.html"))
+    return FileResponse(os.path.join("core", "web", "interface", "index.html"))
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -61,4 +61,4 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 # Serve os arquivos da pasta interface (CSS, JS)
-app.mount("/", StaticFiles(directory="interface"), name="static")
+app.mount("/", StaticFiles(directory=os.path.join("core", "web", "interface")), name="static")

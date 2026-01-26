@@ -12,7 +12,8 @@ class RotinasModule(AeonModule):
     def __init__(self, core_context):
         super().__init__(core_context)
         self.name = "Rotinas"
-        self.triggers = ["rotina", "rotinas", "alarme", "timer", "lembrete"]
+        self.triggers = ["rotina", "rotinas", "alarme", "timer", "lembrete", 
+                        "cancelar alarme", "listar alarmes"]
         
         # O estado da gravação agora é interno ao módulo
         self.recording_routine_name = None
@@ -84,6 +85,15 @@ class RotinasModule(AeonModule):
 
         # --- Alarmes e Lembretes ---
         elif "alarme" in command or "timer" in command or "lembrete" in command:
+            if "listar" in command or "quais" in command:
+                if not self.alarms: return "Não há alarmes ativos."
+                lista = [f"{a['message']} às {a['time'].strftime('%H:%M:%S')}" for a in self.alarms if a['active']]
+                return f"Alarmes ativos: {', '.join(lista)}."
+            
+            if "cancelar" in command:
+                self.alarms = []
+                return "Todos os alarmes e timers foram cancelados."
+                
             return self.processar_alarme(command)
         
         return "" # Nenhum comando do módulo foi acionado
@@ -209,4 +219,3 @@ class RotinasModule(AeonModule):
         # Alarme disparado
         if io_handler:
             io_handler.falar(f"Atenção! {message}")
-

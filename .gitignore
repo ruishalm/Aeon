@@ -1,26 +1,3 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-.venv/
-venv/
 
-# Ambientes e Chaves
+# Environment variables
 .env
-
-# IDEs
-.vscode/
-.idea/
-
-# Aeon Data & Workspace (Arquivos gerados e temporários)
-workspace/
-bagagem/tarot_history.json
-bagagem/memoria.json
-bagagem/historico.json
-
-# Arquivos Pesados / Binários
-*.task
-*.exe
-Python/
-Ollama/
-AeonData/

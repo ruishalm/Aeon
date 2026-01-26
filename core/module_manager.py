@@ -1,5 +1,6 @@
 import importlib
 import inspect
+import os
 import sys
 import threading
 from pathlib import Path
@@ -38,9 +39,22 @@ class ModuleManager:
 
     def load_modules(self):
         """Escaneia /modules e carrega tudo."""
-        # Garante que sempre busca a pasta 'modules' na raiz do projeto
-        root_dir = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        import os # Reforço local
+        root_dir = Path(__file__).resolve().parent
+        # Se não encontrar a pasta modules aqui, tenta subir um nível (caso esteja em /core)
+        if not (root_dir / "modules").exists():
+            root_dir = root_dir.parent
+        
+        # FIX: Garante que a raiz do projeto esteja no sys.path para imports funcionarem
+        if str(root_dir) not in sys.path:
+            sys.path.append(str(root_dir))
+            
         modules_dir = root_dir / "modules"
+        
+        if not modules_dir.exists():
+            log_display(f"⚠ Erro: Pasta de módulos não encontrada em {modules_dir}")
+            return
+
         log_display(f"Carregando módulos de: {modules_dir}")
 
         for item in modules_dir.iterdir():
@@ -67,8 +81,8 @@ class ModuleManager:
                 if inspect.isclass(obj) and issubclass(obj, AeonModule) and obj is not AeonModule:
                     module_instance = obj(self.core_context)
                     if not module_instance.check_dependencies():
-                        log_display(f"  ⚠ Dependências falharam para {module_instance.name}")
-                        return
+                        log_display(f"  ⚠ Dependências falharam para {name} em {module_name}")
+                        continue
 
                     if module_instance.on_load():
                         self.modules.append(module_instance)
@@ -129,19 +143,34 @@ class ModuleManager:
                 triggered = True
                 break 
 
-        # 3. FALLBACK (Brain)
+        # 3. FALLBACK (Biblioteca e Cérebro)
         if not triggered:
             brain = self.core_context.get("brain")
             if brain:
+                # ETAPA 3.1: ÂNCORA DA BIBLIOTECA
+                library_context = ""
+                biblioteca_mod = self.get_module("Biblioteca")
+                if biblioteca_mod:
+                    # O método 'pesquisar_livros' retorna uma string com resultados ou None
+                    resultados = biblioteca_mod.pesquisar_livros(command)
+                    if resultados:
+                        library_context = resultados
+                
+                # ETAPA 3.2: CÉREBRO
                 hist = self._format_history()
                 caps = self.get_capabilities_summary()
-                
-                # Recupera memórias de longo prazo relevantes para a pergunta atual
                 long_term = ""
                 if self.vector_memory:
                     long_term = self.vector_memory.retrieve_relevant(command)
                 
-                response = brain.pensar(prompt=command, historico_txt=hist, system_override=None, capabilities=caps, long_term_context=long_term)
+                response = brain.pensar(
+                    prompt=command, 
+                    historico_txt=hist, 
+                    system_override=None, 
+                    capabilities=caps, 
+                    long_term_context=long_term,
+                    library_context=library_context  # Novo parâmetro!
+                )
             else:
                 response = "Cérebro indisponível."
 
@@ -170,6 +199,10 @@ class ModuleManager:
     def release_focus(self):
         with self.focus_lock:
             self.focused_module = None
+
+    def get_module(self, name):
+        """Retorna uma instância de módulo pelo nome."""
+        return self.module_map.get(name.lower())
 
     def get_loaded_modules(self):
         return self.modules

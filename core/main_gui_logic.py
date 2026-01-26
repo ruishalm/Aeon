@@ -20,6 +20,7 @@ except ImportError:
 from core.io_handler import IOHandler
 from core.config_manager import ConfigManager
 from core.context_manager import ContextManager 
+from core.installer import AeonInstaller
 
 # CONFIGURAÇÕES DE TEMA (CYBERPUNK)
 C = {
@@ -36,9 +37,13 @@ class AeonGUI(ctk.CTk):
         super().__init__()
         import os # Importação blindada local
         
+        # Inicializa o Instalador e verifica dependências críticas
+        self.installer = AeonInstaller()
+        threading.Thread(target=self.installer.check_pyaudio, daemon=True).start()
+
         self.config_manager = ConfigManager()
         cfg = getattr(self.config_manager, 'config', {}) 
-        self.io_handler = IOHandler(cfg, None)
+        self.io_handler = IOHandler(cfg, self.installer)
         
         try:
             print(f"[DEBUG] Carregando Dashboard de: {__file__}")
@@ -60,7 +65,8 @@ class AeonGUI(ctk.CTk):
             "brain": self.brain,
             "context": self.context_manager,
             "gui": self,
-            "workspace": self.workspace_path  # Agora o DevFactory sabe onde salvar!
+            "workspace": self.workspace_path,
+            "installer": self.installer
         }
 
         self.module_manager = ModuleManager(self.core_context)
@@ -86,6 +92,9 @@ class AeonGUI(ctk.CTk):
         
         self.add_message("Sistema Online. V85 Estabilizada.", "SISTEMA")
         self.update_module_list()
+
+        # Ativa a escuta automaticamente ao iniciar
+        self.toggle_mic()
 
     def setup_left_panel(self):
         self.frame_left = ctk.CTkFrame(self, fg_color=C["panel_bg"], corner_radius=0)
@@ -248,7 +257,7 @@ class AeonGUI(ctk.CTk):
             self.after(0, lambda: self.add_message(f"Erro Crítico: {e}", "SISTEMA"))
 
     def toggle_mic(self):
-        threading.Thread(target=self.process_in_background, args=("ativar escuta",), daemon=True).start()
+        threading.Thread(target=self.process_in_background, args=("escuta passiva",), daemon=True).start()
         self.btn_mic.configure(fg_color=C["accent_secondary"])
 
     def setup_right_panel(self):

@@ -1,6 +1,13 @@
+# SAFE IMPORT V85
+try:
+    import cv2
+    import mediapipe as mp
+    from mediapipe.tasks import python
+    from mediapipe.tasks.python import vision
+    GEAR_AVAILABLE = True
+except ImportError:
+    GEAR_AVAILABLE = False
 
-import cv2
-import mediapipe as mp
 import threading
 import time
 import os
@@ -8,8 +15,6 @@ import numpy as np
 import math
 import pyautogui
 from modules.base_module import AeonModule
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
 
 # Conexoes dos landmarks da mao para desenhar as linhas
 HAND_CONNECTIONS = [
@@ -32,7 +37,9 @@ class GestosModule(AeonModule):
         
         self.detector = None
         self.detection_result = None
-        self.model_path = 'hand_landmarker.task' # ATENCAO: O arquivo deve estar no diretorio raiz do projeto
+        
+        # O caminho do modelo agora é relativo ao arquivo do módulo
+        self.model_path = os.path.join(os.path.dirname(__file__), 'hand_landmarker.task')
 
         # Estado da Thread
         self.running = False
@@ -55,10 +62,23 @@ class GestosModule(AeonModule):
         self.action_cooldown_end_time = 0
         self.ACTION_COOLDOWN_PERIOD = 2.0 # 2 segundos de espera após uma ação
         
-        self._initialize_detector()
+        if GEAR_AVAILABLE:
+            self._initialize_detector()
+
+    def check_dependencies(self):
+        if not GEAR_AVAILABLE:
+            print("[GEAR] Aviso: 'opencv-python' ou 'mediapipe' não instalados. Módulo de gestos desativado.")
+            return True # Retorna True para não matar o sistema, apenas fica inativo
+        return super().check_dependencies()
 
     def _initialize_detector(self):
         """Inicializa o detector de maos do MediaPipe."""
+        if not os.path.exists(self.model_path):
+            print(f"[GEAR][ERRO] Modelo de gestos não encontrado!")
+            print(f"[GEAR][ERRO] Baixe o arquivo 'hand_landmarker.task' do site do MediaPipe e coloque-o em: {os.path.dirname(self.model_path)}")
+            self.detector = None
+            return
+
         try:
             base_options = python.BaseOptions(model_asset_path=self.model_path)
             options = vision.HandLandmarkerOptions(
@@ -74,7 +94,6 @@ class GestosModule(AeonModule):
             print("[GEAR] Motor de Gestos (MediaPipe Task API) inicializado.")
         except Exception as e:
             print(f"[GEAR][ERRO] Falha ao inicializar MediaPipe Task API: {e}")
-            print(f"[GEAR][ERRO] Verifique se o arquivo '{self.model_path}' existe no diretorio raiz.")
             self.detector = None
 
     def _result_callback(self, result: vision.HandLandmarkerResult, output_image: mp.Image, timestamp_ms: int):
@@ -85,13 +104,17 @@ class GestosModule(AeonModule):
     def metadata(self) -> dict:
         return {
             "description": "Permite ao Aeon acessar a câmera física, ver o usuário e reconhecer gestos manuais (XIU, VITORIA, ABRE, FECHA) para controle do sistema.",
-            "version": "1.2.0"
+            "version": "1.3.0"
         }
 
     def on_load(self) -> bool:
-        return self.detector is not None
+        # DESATIVADO: Funcionalidade migrada para visao_mod.py para evitar conflito de câmera
+        return False 
 
     def process(self, command: str) -> str:
+        if not GEAR_AVAILABLE:
+            return "O módulo de gestos está desativado. Instale 'opencv-python' e 'mediapipe' para usá-lo."
+
         cmd = command.lower()
         
         # Comando para testar a camera em modo debug
@@ -135,7 +158,9 @@ class GestosModule(AeonModule):
         
         if self.cap and self.cap.isOpened():
             self.cap.release()
-        cv2.destroyAllWindows()
+        
+        if GEAR_AVAILABLE:
+            cv2.destroyAllWindows()
 
     def _vision_loop(self):
         # Lógica de fallback para abertura da câmera
@@ -183,12 +208,6 @@ class GestosModule(AeonModule):
                 # Se nenhuma mão for detectada, reseta o estado de rastreamento
                 self._reset_tracking_state()
             
-            # Se o gesto mudou, executa a ação no Core (REMOVIDO - agora dentro de _handle_gesture_logic)
-            # if gesto_detectado != self.ultimo_gesto:
-            #     if gesto_detectado != "DESCONHECIDO" and gesto_detectado != "NADA":
-            #         self._executar_acao(gesto_detectado)
-            #     self.ultimo_gesto = gesto_detectado
-
             if self.debug_mode:
                 cv2.putText(frame, f"Gesto: {self.ultimo_gesto}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                 cv2.imshow("Aeon Vision Test", frame)
@@ -408,13 +427,6 @@ class GestosModule(AeonModule):
             if hasattr(gui, 'process_command'):
                 if io: io.falar("Ativando modo invisível.")
                 gui.after(0, gui.process_command, "modo invisível")
-
-
-    def on_unload(self) -> bool:
-        self.stop_vision()
-        if self.detector:
-            self.detector.close()
-        return True
 
 
     def on_unload(self) -> bool:

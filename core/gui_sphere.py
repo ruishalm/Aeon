@@ -1,10 +1,9 @@
-import sys
 import os
 import math
 import random
 import ctypes
 import threading
-from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QLineEdit, QFrame, QLabel
+from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QLineEdit, QFrame, QLabel, QMenu
 from PyQt6.QtCore import Qt, QTimer, QPoint, QPointF, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QRadialGradient, QBrush, QPen, QPainterPath
 from pynput import keyboard as pynput_keyboard
@@ -68,6 +67,7 @@ class AeonSphere(QMainWindow):
             "gui": self, 
             "workspace": self.workspace_path
         }
+        print("[BOOT] Carregando módulos e memória (Isso pode demorar na 1ª vez)...")
         self.module_manager = ModuleManager(self.core_context)
         self.core_context["module_manager"] = self.module_manager
         self.module_manager.load_modules()
@@ -149,7 +149,11 @@ class AeonSphere(QMainWindow):
         # Inicia oculta (Modo Fantasma)
         self.set_click_through(True)
         self.after(3000, lambda: threading.Thread(target=self.process_command, args=("ativar escuta", True), daemon=True).start()) # silent=True mantém standby
-        self.after(4000, lambda: threading.Thread(target=self.process_command, args=("ativar visão", True), daemon=True).start()) # Inicia a visão silenciosamente
+        
+        # Inicia ACORDADO (Ativo) e configura o timer para dormir se não houver interação
+        self.after(3500, self.wake_up)
+        self.after(3500, lambda: self.sleep_timer.start(120000)) # 2 minutos para dormir se ninguém falar nada
+        self.after(2000, lambda: self.io_handler.falar("Aeon Online."))
 
     def set_click_through(self, enable: bool):
         """Controla se o mouse atravessa a janela ou interage com ela."""
@@ -169,6 +173,7 @@ class AeonSphere(QMainWindow):
             self.input_box.setFocus()
             self.is_interactive = True
             self.hidden_mode = False
+            self.wake_up() # Garante que ao interagir manualmente, ele acorde
         ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
 
     def _setup_global_hotkey(self):
@@ -348,12 +353,12 @@ class AeonSphere(QMainWindow):
         print("[GUI] Recebido comando para encerrar. Parando módulos...")
         # 1. Parar módulos que rodam em threads
         try:
-            audicao = self.module_manager.get_module("Audicao")
+            audicao = self.module_manager.get_module("Audicao") # Agora o método existe
             if audicao and hasattr(audicao, 'stop'):
                 audicao.stop()
                 print("[GUI] Módulo Audicao parado.")
 
-            gestos = self.module_manager.get_module("Gestos")
+            gestos = self.module_manager.get_module("Gestos") # Agora o método existe
             if gestos and hasattr(gestos, 'stop_vision'):
                 gestos.stop_vision()
                 print("[GUI] Módulo Gestos parado.")
@@ -368,26 +373,22 @@ class AeonSphere(QMainWindow):
         try:
             cmd = txt.lower().strip()
             
-            wake_words = ["aeon", "aion", "iron", "ion", "aon", "eion", "iniciar", "acordar"]
-            
-            # 1. Verifica se é APENAS a palavra de ativação
-            if cmd in wake_words:
-                self.after(0, self.wake_up)
-                self.io_handler.falar("Chamou?")
-                self.after(0, self.sleep_timer.start, 5000) # Volta a dormir em 5s se nada for dito
-                return
+            # Palavras que furam o bloqueio do Standby
+            wake_words = ["acordar", "aeon", "ativar", "oi", "olá", "acorde", "escuta"]
 
-            # 2. Verifica se o comando começa com a palavra de ativação (ex: "Aeon, horas")
-            is_wake_call = any(cmd.startswith(w) for w in wake_words)
-            
-            # Se estiver em Standby e não for uma chamada direta ou comando silencioso, ignora
-            if self.visual_mode == "STANDBY" and not is_wake_call and not silent:
-                return
+            # Se estiver em Standby e não for um comando silencioso, ignora.
+            # A ativação agora é feita pelo STTModule chamando gui.wake_up()
+            if self.visual_mode == "STANDBY" and not silent:
+                # Se for uma wake word, permitimos passar e acordamos
+                if any(w in cmd for w in wake_words):
+                    self.wake_up()
+                else:
+                    return
 
-            # Se houver um comando e não for silencioso, cancela o timer de sono e acorda
+            # Se houver um comando e não for silencioso, acorda e reinicia o timer de sono
             if not silent:
                 self.after(0, self.wake_up)
-                self.after(0, self.sleep_timer.start, 10000) # Volta a dormir após 10s de inatividade
+                self.after(0, self.sleep_timer.start, 120000) 
 
             if cmd in ["ficar invisível", "modo invisível", "sumir", "desativar esfera", "esconder"]:
                 self.hidden_mode = True
@@ -397,32 +398,31 @@ class AeonSphere(QMainWindow):
             
             if cmd in ["ficar visível", "modo visível", "aparecer", "ativar esfera", "mostrar"]:
                 self.hidden_mode = False
-                self.set_click_through(False) # Torna interativa novamente
+                self.set_click_through(False) 
                 self.io_handler.falar("Modo visível ativado.")
                 self.update()
                 return
 
             if not silent: self.state = "PROCESSING"
             response = self.module_manager.route_command(txt)
-            # Muda estado para IDLE antes de falar para permitir animação de fala
+
             self.after(0, lambda: setattr(self, 'state', 'IDLE'))
-            # Exibe resposta na interface se não for comando silencioso
-            if not silent: self.after(0, self.show_response, response)
-            self.io_handler.falar(response)
+
+            if not silent: 
+                self.after(0, self.show_response, response)
+                self.io_handler.falar(response)
         except Exception as e:
             print(f"Erro: {e}")
 
     def show_response(self, text):
         """Exibe o texto no balão flutuante."""
-        # Desativado temporariamente para remover o balão de fala da interface
-        # # Forçado para 300 caracteres conforme solicitado
-        # display_text = text[:300] + "..." if len(text) > 300 else text
-        # self.response_label.setText(display_text)
-        # self.response_label.show()
-        # # Tempo dinâmico: 1 segundo para cada 20 caracteres (mínimo 5s)
-        # display_time = max(5000, len(display_text) * 50)
-        # QTimer.singleShot(display_time, self.response_label.hide)
-        pass
+        # Reativado para feedback visual
+        display_text = text[:300] + "..." if len(text) > 300 else text
+        self.response_label.setText(display_text)
+        self.response_label.show()
+        # Tempo dinâmico: 1 segundo para cada 20 caracteres (mínimo 4s)
+        display_time = max(4000, len(display_text) * 50)
+        QTimer.singleShot(display_time, self.response_label.hide)
 
     def add_message(self, text, sender="SISTEMA"):
         """Compatibilidade com módulos que enviam mensagens de texto."""
@@ -459,6 +459,19 @@ class AeonSphere(QMainWindow):
             event.accept()
             # Uma pequena pausa antes de voltar ao modo fantasma para evitar cliques acidentais
             self.after(100, self.set_click_through, True)
+            
+    def contextMenuEvent(self, event):
+        """Menu de contexto com clique direito."""
+        menu = QMenu(self)
+        menu.setStyleSheet(f"background-color: {C_BG_INPUT}; color: {C_TEXT}; border: 1px solid {C_BORDER};")
+        
+        action_visivel = menu.addAction("Alternar Visibilidade")
+        action_visivel.triggered.connect(lambda: self.set_click_through(not self.is_interactive))
+        
+        action_sair = menu.addAction("Encerrar Aeon")
+        action_sair.triggered.connect(self.quit_app)
+        
+        menu.exec(event.globalPos())
 
     def keyPressEvent(self, event):
         """Atalhos de teclado."""

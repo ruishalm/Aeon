@@ -14,7 +14,7 @@ class PersonalizacaoModule(AeonModule):
         self.name = "Personalização"
         self.triggers = [
             "mudar a voz para", "listar vozes",
-            "palavra de ativação", "lembre que", "mudar o tema"
+            "palavra de ativação", "lembre que", "mudar o tema", "resetar preferências"
         ]
 
     @property
@@ -106,6 +106,11 @@ class PersonalizacaoModule(AeonModule):
             # Aqui, apenas salvamos a configuração.
             config_manager.set_system_data("current_theme", theme_name)
             return f"Tema alterado para {theme_name}. A mudança será aplicada na próxima vez que eu iniciar."
+
+        if "resetar preferências" in command:
+            config_manager.set_system_data("user_prefs", {})
+            config_manager.set_system_data("VOICE", "pt-BR-AntonioNeural") # Reset para padrão
+            return "Preferências de usuário e voz resetadas para o padrão de fábrica."
             
         return ""
 
