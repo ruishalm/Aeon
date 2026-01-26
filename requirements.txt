@@ -1,18 +1,38 @@
+# GUI
 customtkinter
-pygame
-edge-tts
+PyQt6
+
+# AI & LLM
 ollama
 groq
+
+# Automation & System
+pyautogui
+pygetwindow
+psutil
+pywin32
+pynput
+
+# Web & Network
 requests
 beautifulsoup4
 feedparser
 googlesearch-python
-pygetwindow
-pyautogui
-pillow
-psutil
+
+# API & Backend
+fastapi
+uvicorn
+websockets
+jinja2
+python-multipart
+chromadb
+
+# Audio & TTS
+edge-tts
 pyttsx3
-PyQt6
-pywin32
-pynput
+
+# Media & Vision
+pygame
+pillow
 mediapipe
+opencv-python

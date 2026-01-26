@@ -1,5 +1,4 @@
 import os
-import os
 import math
 import random
 import ctypes
@@ -71,6 +70,7 @@ class AeonSphere(QMainWindow):
             "gui": self, 
             "workspace": self.workspace_path
         }
+        print("[BOOT] Carregando módulos e memória (Isso pode demorar na 1ª vez)...")
         self.module_manager = ModuleManager(self.core_context)
         self.core_context["module_manager"] = self.module_manager
         self.module_manager.load_modules()

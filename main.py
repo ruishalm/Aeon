@@ -1,6 +1,10 @@
 import os
-import os
+import sys
 import threading
+import warnings
+import traceback
+
+warnings.filterwarnings("ignore", category=UserWarning, module='pygame')
 
 # Ajusta caminho para encontrar os módulos
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -35,6 +39,7 @@ if __name__ == "__main__":
 
     except Exception as e:
         print(f"\n[ALERTA] Falha ao iniciar interface principal: {e}")
+        traceback.print_exc()
         if not use_dashboard:
             print("[BOOT] Ativando Protocolo de Segurança: Iniciando GUI Clássica (Fallback)...")
             try:
@@ -43,3 +48,4 @@ if __name__ == "__main__":
                 app.mainloop()
             except Exception as e_fallback:
                 print(f"[ERRO CRÍTICO] Falha total no sistema de interface: {e_fallback}")
+                traceback.print_exc()
