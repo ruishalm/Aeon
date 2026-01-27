@@ -35,7 +35,8 @@ class BibliotecaModule(AeonModule):
         self.name = "Biblioteca"
         self.triggers = ["livro", "livros", "biblioteca", "pesquise na biblioteca", 
                         "extrair livros", "processar biblioteca", "organizar livros",
-                        "processar livro", "extrair livro", "listar gaveta", "gaveta"]
+                        "processar livro", "extrair livro", "listar gaveta", "gaveta",
+                        "apagar livro", "deletar livro"]
         
         # Caminhos estruturados (Gaveta -> Estante)
         base_dir = Path(__file__).resolve().parent
@@ -179,6 +180,17 @@ class BibliotecaModule(AeonModule):
             
         elif any(k in command for k in ["extrair livros", "processar biblioteca", "organizar livros"]):
             return self.extrair_textos_gaveta()
+
+        elif "apagar livro" in command or "deletar livro" in command:
+            # Regex para capturar: apagar livro 'titulo' da estante/gaveta
+            match = re.search(r"(?:apagar|deletar) livro (.+?)(?: da (gaveta|estante))?$", command)
+            if match:
+                nome_livro = match.group(1).strip().replace("'", "").replace('"', '')
+                # Se o local não for especificado, o padrão é 'estante'
+                local = match.group(2) if match.group(2) else "estante"
+                return self.apagar_livro(nome_livro, local)
+            else:
+                return "Comando para apagar inválido. Use: apagar livro \"<nome>\" [da gaveta/estante]."
         
         # Feedback genérico se apenas o nome do módulo foi chamado
         if command.lower().strip() in self.triggers:
@@ -273,16 +285,15 @@ class BibliotecaModule(AeonModule):
                 try:
                     # Suporte atual: .txt (Futuramente PDF/EPUB)
                     if file_path.suffix.lower() == ".txt":
-                        content = file_path.read_text(encoding='utf-8', errors='replace')
                         dest_path = self.estante_path / file_path.name
-                        dest_path.write_text(content, encoding='utf-8')
+                        shutil.move(str(file_path), str(dest_path))
                         processed += 1
                 except Exception as e:
-                    log_display(f"Erro ao extrair {file_path.name}: {e}")
+                    log_display(f"Erro ao mover {file_path.name}: {e}")
                     errors += 1
         
         self._update_context()
-        return f"Processamento concluído. {processed} livros extraídos para a Estante. {errors} erros."
+        return f"Processamento concluído. {processed} livros movidos para a Estante. {errors} erros."
 
     def listar_gaveta(self) -> str:
         """Lista os arquivos na gaveta com índices para processamento individual."""
@@ -340,12 +351,57 @@ class BibliotecaModule(AeonModule):
         # Reutiliza a lógica de extração (atualmente suporta .txt)
         if target_file.suffix.lower() == ".txt":
             try:
-                content = target_file.read_text(encoding='utf-8', errors='replace')
                 dest_path = self.estante_path / target_file.name
-                dest_path.write_text(content, encoding='utf-8')
+                shutil.move(str(target_file), str(dest_path))
                 self._update_context()
-                return f"Livro '{target_file.name}' processado com sucesso e movido para a Estante."
+                return f"Livro '{target_file.name}' processado e movido para a Estante com sucesso."
             except Exception as e:
-                return f"Erro ao processar '{target_file.name}': {e}"
+                return f"Erro ao mover '{target_file.name}': {e}"
         else:
             return f"O arquivo '{target_file.name}' não é um formato de texto suportado (.txt)."
+
+    def apagar_livro(self, nome_livro: str, local: str) -> str:
+        """Apaga um livro da 'gaveta' ou 'estante'."""
+        if local == "estante":
+            path = self.estante_path
+            try:
+                # Na estante, o nome é o 'stem', então buscamos pelo arquivo .txt
+                target_file = next(path.glob(f"{nome_livro}.txt"), None)
+                if not target_file or not target_file.exists():
+                    return f"Não encontrei o livro '{nome_livro}' na Estante."
+                
+                nome_real = target_file.name
+                target_file.unlink()  # Apaga o arquivo
+                self._update_context()
+                return f"O livro '{nome_real}' foi apagado da Estante."
+            except Exception as e:
+                return f"Ocorreu um erro ao apagar o livro da Estante: {e}"
+
+        elif local == "gaveta":
+            files = sorted([f for f in self.gaveta_path.glob("*") if f.is_file()])
+            target_file = None
+
+            # Tenta identificar por índice numérico
+            try:
+                indice = int(nome_livro)
+                if 1 <= indice <= len(files):
+                    target_file = files[indice - 1]
+                else:
+                    return f"Índice de livro inválido: {indice}. Use um número de 1 a {len(files)}."
+            except ValueError:
+                # Se não for um número, trata como nome de arquivo
+                target_file = next((f for f in files if f.name == nome_livro), None)
+            
+            if not target_file or not target_file.exists():
+                return f"Não encontrei o livro '{nome_livro}' na Gaveta. Tente usar o nome do arquivo ou o índice."
+            
+            try:
+                nome_real = target_file.name
+                target_file.unlink()  # Apaga o arquivo
+                self._update_context()
+                return f"O livro '{nome_real}' foi apagado da Gaveta."
+            except Exception as e:
+                return f"Ocorreu um erro ao apagar o livro da Gaveta: {e}"
+        
+        else:
+            return f"Local desconhecido '{local}'. Por favor, especifique 'gaveta' ou 'estante'."
