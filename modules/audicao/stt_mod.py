@@ -7,7 +7,7 @@ class STTModule(AeonModule):
     def __init__(self, core_context):
         super().__init__(core_context)
         self.name = "Audicao"
-        self.triggers = ["escuta passiva", "ativar escuta", "parar escuta", "dormir"]
+        self.triggers = ["escuta passiva", "ativar escuta", "parar escuta", "dormir", "acordar", "acorde"]
         self.dependencies = ["gui", "io_handler", "context"]
         
         self.recognizer = sr.Recognizer()
@@ -41,6 +41,11 @@ class STTModule(AeonModule):
         if "dormir" in command:
             self.go_to_sleep()
             return "Ok, entrando em modo de espera."
+        
+        if command in ["acordar", "acorde"]:
+            self.is_awake = True
+            self.core_context.get("io_handler").play_feedback_sound('start')
+            return "Estou ouvindo."
         
         return ""
 
@@ -84,7 +89,9 @@ class STTModule(AeonModule):
                             print(f"[AUDIÇÃO] Ouvido (Passivo): {texto}") # Debug para saber se o mic funciona
                             
                             # Carrega triggers dinamicamente da configuração + padrão
-                            triggers = [self.wake_word]
+                            # Adiciona variações fonéticas comuns para "Aeon" e comandos de despertar
+                            triggers = [self.wake_word, "aion", "eon", "ion", "leon", "hey on", "acorda", "acorde", "ei aeon"]
+                            
                             if config_manager:
                                 custom = config_manager.get_system_data("triggers")
                                 if custom and isinstance(custom, list):

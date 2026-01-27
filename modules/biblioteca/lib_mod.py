@@ -1,6 +1,9 @@
 import os
 import re
 import threading
+import shutil
+import tkinter as tk
+from tkinter import filedialog
 from pathlib import Path
 from typing import List, Dict, Optional
 from modules.base_module import AeonModule
@@ -158,8 +161,11 @@ class BibliotecaModule(AeonModule):
             titulo = command.replace("leia o livro", "").replace("ler o livro", "").strip()
             return self.ler_livro(titulo) if titulo else "Qual livro você quer que eu leia?"
 
-        elif "listar gaveta" in command or "abrir gaveta" in command or "ver gaveta" in command:
+        elif "listar gaveta" in command or "ver gaveta" in command:
             return self.listar_gaveta()
+            
+        elif "abrir gaveta" in command:
+            return self.abrir_gaveta_explorer()
 
         elif "processar livro" in command or "extrair livro" in command:
             # Tenta extrair o índice numérico do comando
@@ -173,6 +179,10 @@ class BibliotecaModule(AeonModule):
             
         elif any(k in command for k in ["extrair livros", "processar biblioteca", "organizar livros"]):
             return self.extrair_textos_gaveta()
+        
+        # Feedback genérico se apenas o nome do módulo foi chamado
+        if command.lower().strip() in self.triggers:
+            return "Módulo Biblioteca ativo. Diga 'abrir gaveta' para adicionar livros ou 'listar livros' para ver o acervo."
         
         return ""
 
@@ -284,6 +294,36 @@ class BibliotecaModule(AeonModule):
         for i, f in enumerate(files, 1):
             lista.append(f"{i}. {f.name}")
         return "Livros na Gaveta (Input):\n" + "\n".join(lista)
+
+    def abrir_gaveta_explorer(self) -> str:
+        """Abre janela de seleção de arquivo para importar para a gaveta."""
+        try:
+            # Verifica se precisa criar um root do Tkinter (caso não esteja rodando via CTk)
+            created_root = False
+            if tk._default_root is None:
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                created_root = True
+
+            file_path = filedialog.askopenfilename(
+                title="Importar Livro para a Gaveta",
+                filetypes=[("Arquivos de Texto", "*.txt"), ("Todos os Arquivos", "*.*")]
+            )
+            
+            if created_root:
+                root.destroy()
+
+            if file_path:
+                filename = os.path.basename(file_path)
+                dest = self.gaveta_path / filename
+                shutil.copy2(file_path, dest)
+                self._update_context()
+                return f"Livro '{filename}' importado com sucesso para a gaveta."
+            
+            return "Importação cancelada."
+        except Exception as e:
+            return f"Erro ao abrir importador: {e}"
 
     def extrair_livro_por_indice(self, indice: int) -> str:
         """Processa um único livro da gaveta baseado no índice da listagem."""

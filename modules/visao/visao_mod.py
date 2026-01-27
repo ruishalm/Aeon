@@ -178,11 +178,16 @@ class VisaoModule(AeonModule):
     # ===============================================
     def _initialize_detector(self):
         """Inicializa o detector de mãos do MediaPipe."""
-        if not os.path.exists(self.model_path):
-            print(f"[VISAO] Modelo de gestos não encontrado. Solicitando download...")
+        # Verifica se o arquivo existe e tem tamanho válido (> 1KB)
+        if not os.path.exists(self.model_path) or os.path.getsize(self.model_path) < 1000:
+            print(f"[VISAO] Modelo de gestos ausente ou inválido. Baixando...")
+            if os.path.exists(self.model_path):
+                os.remove(self.model_path) # Remove arquivo corrompido/vazio
+                
             installer = self.core_context.get("installer")
             if installer:
-                url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
+                # Usa versão fixa '1' em vez de 'latest' para evitar redirecionamentos problemáticos
+                url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
                 installer.download_file(url, self.model_path)
             
             if not os.path.exists(self.model_path):

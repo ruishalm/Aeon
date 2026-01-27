@@ -1,2 +1,25 @@
-# Environment management
+opencv-python
+mediapipe
+numpy
+pyautogui
+PyQt6
+pynput
+edge-tts
+googlesearch-python
+requests
+customtkinter
+psutil
+SpeechRecognition
+pyaudio
+pygetwindow
+pygame
+pyttsx3
+pyperclip
+chromadb
+sentence-transformers
+ollama
+groq
+Pillow
 python-dotenv
+pipwin
+dateparser
