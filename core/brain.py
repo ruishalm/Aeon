@@ -27,6 +27,8 @@ class AeonBrain:
         self.online = False
         self.local_ready = False
         self.available_models = []
+        self.forced_offline = False # Flag para forçar modo offline
+        self.prefer_local = False   # Flag para preferir processamento local
         
         # Tenta carregar variáveis de ambiente do arquivo .env
         try:
@@ -38,6 +40,10 @@ class AeonBrain:
         
         # Prioridade: Variável de Ambiente (.env) > Configuração JSON
         self.groq_api_key = os.getenv("GROQ_KEY") or self.config.get("GROQ_KEY")
+        
+        # Verifica preferência por IA Local
+        if os.getenv("AI_PROVIDER", "").lower() == "local" or self.config.get("AI_PROVIDER") == "local":
+            self.prefer_local = True
 
         # AUTO-CORREÇÃO: Remove lixo comum de copy-paste (ex: 'GROQ_KEY = gsk_...')
         if self.groq_api_key and isinstance(self.groq_api_key, str):
@@ -75,8 +81,28 @@ class AeonBrain:
                 log_display(f"Ollama não detectado (Verifique se o app está aberto): {e}")
                 self.local_ready = False
 
+    def force_offline(self):
+        """Força o cérebro a operar em modo offline."""
+        self.online = False
+        self.forced_offline = True
+        log_display("Modo offline forçado. Usando apenas cérebro local.")
+        return "Ok, operando em modo offline."
+
+    def force_online(self):
+        """Tenta voltar a operar em modo online."""
+        self.forced_offline = False
+        log_display("Tentando reconectar ao modo online...")
+        if self.reconectar():
+            return "Conexão com a nuvem reestabelecida."
+        else:
+            return "Não foi possível reconectar. Verifique sua chave e conexão."
+
     def reconectar(self):
         """Tenta (re)conectar ao serviço de nuvem (Groq)."""
+        if self.forced_offline:
+            log_display("Reconexão bloqueada pelo modo offline forçado.")
+            return False
+
         # Atualiza a chave da memória caso tenha mudado
         # Recarrega .env para permitir troca de chave sem reiniciar e garantir leitura
         try:
@@ -120,95 +146,130 @@ class AeonBrain:
 
     def pensar(self, prompt: str, historico_txt: str = "", user_prefs: dict = {}, system_override: str = None, capabilities: str = "", long_term_context: str = "", library_context: str = "") -> str:
         """
-        Processa um prompt com Auto-Healing de conexão.
+        Processa um prompt, decidindo se deve chamar uma ferramenta ou responder diretamente.
+        Retorna um dicionário (tool_call) ou uma string (resposta de conversação).
+        Suporta Tool Use local (Qwen) e nuvem (Groq).
         """
-        # CORREÇÃO: Se estiver marcado como offline, tenta reconectar uma vez antes de desistir
-        if not self.online and self.groq_api_key:
+        import json
+        
+        if not self.online and self.groq_api_key and not self.forced_offline:
             self.reconectar()
 
+        # O system_override é para casos especiais onde um módulo força um comportamento.
+        # Se não houver, usamos nosso novo prompt de decisão de ferramentas.
         if system_override:
             system_prompt = system_override
         else:
-            prefs_str = "\n".join([f"- {k}: {v}" for k, v in user_prefs.items()]) if user_prefs else "Nenhuma preferência definida."
-            
-            system_prompt = f"""Você é Aeon, um assistente focado em respostas precisas e factuais.
-Data: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
-Responda SEMPRE em Português do Brasil, de forma concisa e prestativa.
-Se você não souber uma informação, admita. Não invente dados.
+            # TODO: O 'capabilities' precisa ser um JSON Schema para ser realmente eficaz.
+            # Por agora, a IA vai tentar extrair dos gatilhos listados.
+            system_prompt = f"""Você é um despachante de funções de IA para o sistema AEON. Seu trabalho é analisar o prompt do usuário e a lista de ferramentas disponíveis e retornar um objeto JSON para chamar a ferramenta apropriada.
 
-CAPACIDADES DO SISTEMA:
-Você possui controle total sobre o hardware (CÂMERA, MICROFONE) e o sistema operacional Windows através de seus módulos técnicos. Se o usuário pedir para ver algo ou ligar a câmera, utilize o módulo de Gestos.
+REGRAS:
+1.  **SAÍDA JSON OBRIGATÓRIA:** Sua resposta DEVE ser um dos dois seguintes formatos:
+    a) Um objeto JSON para chamada de ferramenta:
+       ```json
+       {{
+         "tool_name": "NomeDoModulo.nome_da_funcao",
+         "parameters": {{ "param1": "valor1" }}
+       }}
+       ```
+    b) Se NENHUMA ferramenta for adequada, use este JSON para uma resposta de conversação:
+       ```json
+       {{
+         "fallback": "Não tenho uma ferramenta para isso, mas..."
+       }}
+       ```
+2.  **NÃO CONVERSE:** Sua saída deve ser APENAS o JSON. Sem texto antes ou depois.
+3.  **ANÁLISE:** Use o prompt do usuário, o histórico e o contexto para tomar sua decisão.
+
+### FERRAMENTAS DISPONÍVEIS:
 {capabilities}
 
-CONTEXTO DA BIBLIOTECA (LIVROS LOCAIS):
-{"Nenhum dado relevante na biblioteca." if not library_context else library_context}
+### CONTEXTO ADICIONAL:
+{long_term_context}
+{library_context}
 
-MEMÓRIAS RELEVANTES DO PASSADO:
-{"Nenhuma memória relevante encontrada." if not long_term_context else long_term_context}
-
-HISTÓRICO RECENTE:
+### HISTÓRICO DA CONVERSA:
 {historico_txt}
+---
+Analise o PROMPT DO USUÁRIO abaixo e retorne o objeto JSON apropriado.
 
-Preferências do usuário:
-{prefs_str}"""
+### PROMPT DO USUÁRIO:
+{prompt}
+"""
 
-        # Prioridade 1: Nuvem (Groq)
-        if self.client and self.online:
+        # Prioridade 1: Nuvem (Groq) - Apenas se não estiver forçado local
+        if self.client and self.online and not self.prefer_local and not self.forced_offline:
             try:
-                log_display("Pensando com Groq Cloud...")
+                log_display("Decidindo ação com Groq Cloud...")
                 comp = self.client.chat.completions.create(
                     model=self.config.get("model_txt_cloud", "llama-3.3-70b-versatile"),
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": f"Pergunta atual: {prompt}"}
+                        {"role": "user", "content": prompt} # O prompt já está no system prompt, mas reforça aqui.
                     ],
-                    temperature=0.6, max_tokens=400
+                    temperature=0.1, # Baixa temperatura para ser mais determinístico
+                    max_tokens=500,
+                    # Força a resposta a ser um objeto JSON válido
+                    response_format={"type": "json_object"},
                 )
-                return comp.choices[0].message.content
+                response_text = comp.choices[0].message.content
+                
+                # Tenta decodificar o JSON. Se a IA desobedeceu e não mandou JSON,
+                # o bloco 'except' vai tratar como texto normal.
+                try:
+                    return json.loads(response_text)
+                except json.JSONDecodeError:
+                    log_display(f"WARN: IA não retornou JSON válido. Tratando como fallback: {response_text}")
+                    return response_text # Retorna o texto puro como fallback
+
             except Exception as e:
                 log_display(f"ERRO GROQ (Caindo para local): {e}")
-                self.online = False # Marca como offline para forçar reconexão futura
+                self.online = False
 
-        # Prioridade 2: Local (Ollama)
+        # Prioridade 2: Local (Ollama) - Agora com tentativa de Tool Use (JSON)
         if self.local_ready:
-            # Lógica de Seleção de Modelo (Auto-Fallback)
-            target_model = self.config.get("model_txt_local", "llama3.2")
+            model_local = self.config.get("model_txt_local", "qwen2.5-coder:7b")
+            log_display(f"Pensando com Ollama Local ({model_local})...")
             
-            # Se temos lista de modelos e o desejado não está nela exata
-            if self.available_models and target_model not in self.available_models:
-                # Tenta achar um parecido (ex: llama3.2 acha llama3.2:latest)
-                match = next((m for m in self.available_models if target_model in m), None)
-                if match:
-                    target_model = match
-                else:
-                    # Se não achar nada, usa o primeiro que tiver (melhor que falhar)
-                    target_model = self.available_models[0]
-                    log_display(f"Modelo padrão não achado. Usando disponível: {target_model}")
-
-            log_display(f"Pensando com Ollama Local ({target_model})...")
             try:
+                # Tenta usar o prompt de sistema JSON para modelos locais inteligentes (como Qwen)
                 r = ollama.chat(
-                    model=target_model,
+                    model=model_local,
                     messages=[
                         {'role': 'system', 'content': system_prompt},
                         {'role': 'user', 'content': prompt}
-                    ]
+                    ],
+                    options={'temperature': 0.1}
                 )
-                return r['message']['content']
+                response_text = r['message']['content']
+                
+                # Tenta extrair JSON da resposta local
+                try:
+                    # Limpeza básica caso o modelo coloque markdown ```json ... ```
+                    clean_text = response_text.replace("```json", "").replace("```", "").strip()
+                    if "{" in clean_text and "}" in clean_text:
+                        # Pega apenas o primeiro objeto JSON encontrado
+                        start = clean_text.find("{")
+                        end = clean_text.rfind("}") + 1
+                        json_str = clean_text[start:end]
+                        return json.loads(json_str)
+                    else:
+                        return response_text # Retorna texto se não for JSON
+                except json.JSONDecodeError:
+                    return response_text
+
             except Exception as e:
-                if "not found" in str(e) or "404" in str(e):
-                    log_display(f"❌ Modelo não instalado! Rode 'python configurar_cerebro.py' para baixar.")
-                    return "Meu cérebro local não está instalado. Rode o configurador."
-                else:
-                    log_display(f"ERRO Ollama: {e}")
+                log_display(f"ERRO Ollama: {e}")
+                return "Cérebro local com problemas."
         
-        return "Desculpe, estou sem conexão e sem um cérebro local funcional."
+        return {"fallback": "Desculpe, estou sem conexão e sem um cérebro local funcional."}
 
     def ver(self, raw_image_bytes: bytes) -> str:
         """
         Processa uma imagem.
         """
-        if not self.online and self.groq_api_key:
+        if not self.online and self.groq_api_key and not self.forced_offline:
             self.reconectar()
 
         try:

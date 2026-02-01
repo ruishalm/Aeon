@@ -5,7 +5,7 @@ import shutil
 import tkinter as tk
 from tkinter import filedialog
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from modules.base_module import AeonModule
 
 # SAFE IMPORTS
@@ -26,19 +26,14 @@ def log_display(msg):
 
 class BibliotecaModule(AeonModule):
     """
-    Módulo para gerenciar a biblioteca de conhecimento local do Aeon.
-    Permite criar, listar, baixar e, mais importante, pesquisar livros
-    para fornecer contexto "ground-truth" ao cérebro.
+    Módulo para gerenciar e pesquisar na biblioteca de conhecimento local do Aeon.
     """
     def __init__(self, core_context):
         super().__init__(core_context)
         self.name = "Biblioteca"
-        self.triggers = ["livro", "livros", "biblioteca", "pesquise na biblioteca", 
-                        "extrair livros", "processar biblioteca", "organizar livros",
-                        "processar livro", "extrair livro", "listar gaveta", "gaveta",
-                        "apagar livro", "deletar livro"]
+        self.dependencies = ["io_handler", "context"]
+        self.triggers = ["livro", "biblioteca", "pesquise"]
         
-        # Caminhos estruturados (Gaveta -> Estante)
         base_dir = Path(__file__).resolve().parent
         self.gaveta_path = base_dir / "livros" / "gaveta"
         self.estante_path = base_dir / "livros" / "Estante"
@@ -46,201 +41,156 @@ class BibliotecaModule(AeonModule):
         self.gaveta_path.mkdir(parents=True, exist_ok=True)
         self.estante_path.mkdir(parents=True, exist_ok=True)
 
-    @property
-    def dependencies(self) -> List[str]:
-        return ["io_handler", "context"]
+    def get_tools(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "Biblioteca.pesquisar_livros",
+                    "description": "Pesquisa um tópico ou termo em todos os livros da biblioteca e retorna trechos relevantes.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": { "type": "string", "description": "O tópico, termo ou pergunta a ser pesquisado." }
+                        },
+                        "required": ["query"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Biblioteca.listar_livros",
+                    "description": "Retorna uma lista com os títulos de todos os livros disponíveis na Estante.",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Biblioteca.baixar_livro",
+                    "description": "Busca e baixa um livro do Projeto Gutenberg (em inglês) e o salva na biblioteca.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "titulo": { "type": "string", "description": "O título do livro a ser baixado." }
+                        },
+                        "required": ["titulo"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Biblioteca.apagar_livro",
+                    "description": "Apaga um livro da 'gaveta' (livros não processados) ou da 'estante' (biblioteca principal).",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "nome_livro": { "type": "string", "description": "O título ou nome do arquivo do livro a ser apagado." },
+                            "local": { "type": "string", "enum": ["gaveta", "estante"], "description": "O local de onde apagar o livro. Padrão: 'estante'." }
+                        },
+                        "required": ["nome_livro"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Biblioteca.extrair_textos_gaveta",
+                    "description": "Processa todos os arquivos da 'gaveta' (área de entrada) e os move para a 'estante' (biblioteca principal).",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            }
+        ]
 
-    @property
-    def metadata(self) -> Dict[str, str]:
-        return {
-            "version": "2.2.0",
-            "author": "Aeon Core",
-            "description": "Gerencia e pesquisa na biblioteca de conhecimento local para fornecer respostas baseadas em fatos."
-        }
+    def process(self, command: str) -> str:
+        # A lógica principal agora é feita pela IA.
+        # Este método serve como fallback para comandos de bypass.
+        if "listar" in command:
+            return self.listar_livros()
+        if "processar" in command or "organizar" in command:
+            return self.extrair_textos_gaveta()
+        return "Módulo Biblioteca ativo. A IA agora pode usar minhas ferramentas para pesquisar, listar, baixar ou apagar livros."
 
-    def on_load(self) -> bool:
-        installer = self.core_context.get("installer")
-        
-        if not GOOGLE_AVAILABLE:
-            print("[BIBLIOTECA] 'googlesearch' ausente. Tentando instalar...")
-            if installer: installer.install_package("googlesearch-python")
-                
-        if not REQUESTS_AVAILABLE:
-            print("[BIBLIOTECA] 'requests' ausente. Tentando instalar...")
-            if installer: installer.install_package("requests")
+    # --- MÉTODOS DE FERRAMENTA (Usados pela IA) ---
 
-        self._update_context()
-        return True
-
-    def _update_context(self):
-        """Atualiza o contexto compartilhado com o índice da biblioteca."""
-        ctx = self.core_context.get("context")
-        if ctx:
-            ctx.set("library_books", self.get_available_books())
-
-    def get_available_books(self) -> List[str]:
-        """Retorna lista de livros disponíveis."""
-        return [p.stem for p in self.estante_path.glob("*.txt")]
-
-    def get_book_content(self, title: str) -> Optional[str]:
-        """Retorna o conteúdo completo de um livro."""
-        try:
-            target_file = next(self.estante_path.glob(f"{title}.txt"), None)
-            if target_file and target_file.exists():
-                return target_file.read_text(encoding='utf-8')
-            return None
-        except Exception:
-            return None
-
-    def pesquisar_livros(self, query: str, max_results: int = 5) -> Optional[str]:
-        """
-        Pesquisa em todos os livros por uma query.
-        Esta é a "âncora" principal do módulo, fornecendo contexto local.
-        Retorna uma string formatada com os resultados ou None.
-        """
+    def pesquisar_livros(self, query: str, max_results: int = 5) -> str:
         log_display(f"Pesquisando livros por: '{query}'")
         query_lower = query.lower()
         found_snippets = []
         
-        # Procura em arquivos .txt e .md
         for book_file in self.estante_path.glob("*.txt"):
+            if len(found_snippets) >= max_results: break
             try:
                 content = book_file.read_text(encoding='utf-8')
                 if query_lower in content.lower():
-                    # Para simplificar, pegamos um trecho ao redor da primeira ocorrência
-                    # Uma implementação mais avançada usaria um índice ou regex.
                     index = content.lower().find(query_lower)
-                    start = max(0, index - 150)
-                    end = min(len(content), index + len(query) + 150)
-                    snippet = content[start:end]
-                    
+                    start = max(0, index - 200)
+                    end = min(len(content), index + len(query) + 200)
+                    snippet = content[start:end].strip()
                     found_snippets.append(f"Do livro '{book_file.stem}':\n\"...{snippet}...\"")
-                    
-                    if len(found_snippets) >= max_results:
-                        break 
             except Exception as e:
                 log_display(f"Erro ao ler o livro {book_file.name}: {e}")
-            
-            if len(found_snippets) >= max_results:
-                break
 
-        if not found_snippets:
-            return None
+        if not found_snippets: return f"Não encontrei nada sobre '{query}' na minha biblioteca."
             
         log_display(f"Encontrados {len(found_snippets)} trechos relevantes.")
-        return "\n\n".join(found_snippets)
-
-
-    def process(self, command: str) -> str:
-        io_handler = self.core_context.get("io_handler")
-        if not io_handler: return "IO Handler não encontrado."
-
-        if "pesquise na biblioteca sobre" in command:
-            query = command.split("pesquise na biblioteca sobre")[-1].strip()
-            if not query:
-                return "O que você gostaria que eu pesquisasse na biblioteca?"
-            
-            resultados = self.pesquisar_livros(query)
-            return resultados if resultados else "Não encontrei nada sobre isso na minha biblioteca."
-
-        if "crie o livro" in command:
-            titulo = command.split("crie o livro")[-1].strip()
-            return self.criar_livro(titulo)
-            
-        elif "baixar livro" in command or "baixe o livro" in command:
-            titulo = command.replace("baixar livro", "").replace("baixe o livro", "").strip()
-            if titulo:
-                threading.Thread(target=self._baixar_livro_thread, args=(titulo, io_handler)).start()
-                return f"Ok, vou tentar baixar o livro '{titulo}'. Isso pode levar um momento."
-            else:
-                return "Qual livro você quer baixar?"
-
-        elif "listar livros" in command:
-            return self.listar_livros()
-
-        elif "leia o livro" in command or "ler o livro" in command:
-            titulo = command.replace("leia o livro", "").replace("ler o livro", "").strip()
-            return self.ler_livro(titulo) if titulo else "Qual livro você quer que eu leia?"
-
-        elif "listar gaveta" in command or "ver gaveta" in command:
-            return self.listar_gaveta()
-            
-        elif "abrir gaveta" in command:
-            return self.abrir_gaveta_explorer()
-
-        elif "processar livro" in command or "extrair livro" in command:
-            # Tenta extrair o índice numérico do comando
-            match = re.search(r'(?:processar|extrair) livro (\d+)', command)
-            if match:
-                try:
-                    idx = int(match.group(1))
-                    return self.extrair_livro_por_indice(idx)
-                except ValueError:
-                    return "Número do livro inválido."
-            
-        elif any(k in command for k in ["extrair livros", "processar biblioteca", "organizar livros"]):
-            return self.extrair_textos_gaveta()
-
-        elif "apagar livro" in command or "deletar livro" in command:
-            # Regex para capturar: apagar livro 'titulo' da estante/gaveta
-            match = re.search(r"(?:apagar|deletar) livro (.+?)(?: da (gaveta|estante))?$", command)
-            if match:
-                nome_livro = match.group(1).strip().replace("'", "").replace('"', '')
-                # Se o local não for especificado, o padrão é 'estante'
-                local = match.group(2) if match.group(2) else "estante"
-                return self.apagar_livro(nome_livro, local)
-            else:
-                return "Comando para apagar inválido. Use: apagar livro \"<nome>\" [da gaveta/estante]."
-        
-        # Feedback genérico se apenas o nome do módulo foi chamado
-        if command.lower().strip() in self.triggers:
-            return "Módulo Biblioteca ativo. Diga 'abrir gaveta' para adicionar livros ou 'listar livros' para ver o acervo."
-        
-        return ""
-
-    def criar_livro(self, titulo: str) -> str:
-        if not titulo: return "Por favor, especifique um título para o livro."
-        
-        safe_title = re.sub(r'[\\/*?:"<>|]', "", titulo)
-        file_path = self.gaveta_path / f"{safe_title}.txt"
-        
-        if file_path.exists():
-            return f"O livro '{titulo}' já existe."
-        
-        file_path.touch()
-        self._update_context()
-        return f"Criei o livro em branco '{titulo}'."
+        return "Encontrei os seguintes trechos relevantes na biblioteca:\n\n" + "\n\n".join(found_snippets)
 
     def listar_livros(self) -> str:
-        livros = self.get_available_books()
+        livros = [p.stem for p in self.estante_path.glob("*.txt")]
         return "Os livros na sua biblioteca são: " + ", ".join(livros) if livros else "Sua biblioteca está vazia."
 
-    def ler_livro(self, titulo: str) -> str:
-        conteudo = self.get_book_content(titulo)
-        if conteudo is None:
-            return f"Não encontrei o livro '{titulo}'."
-            
-        if not conteudo.strip():
-            return f"O livro '{titulo}' está vazio."
-            
-        # Limita a leitura para não sobrecarregar o TTS
-        if len(conteudo) > 2000:
-            return conteudo[:2000] + "... O livro é muito longo para ser lido completamente."
-        return conteudo
+    def baixar_livro(self, titulo: str) -> str:
+        io_handler = self.core_context.get("io_handler")
+        threading.Thread(target=self._baixar_livro_thread, args=(titulo, io_handler)).start()
+        return f"Certo. A busca e download do livro '{titulo}' foi iniciada em segundo plano."
+
+    def apagar_livro(self, nome_livro: str, local: str = "estante") -> str:
+        path = self.estante_path if local == "estante" else self.gaveta_path
+        
+        target_file = next(path.glob(f"{nome_livro}*"), None) # Busca flexível
+        if not target_file or not target_file.exists():
+            return f"Não encontrei o livro '{nome_livro}' em '{local}'."
+        
+        try:
+            nome_real = target_file.name
+            target_file.unlink()
+            self._update_context()
+            return f"O livro '{nome_real}' foi apagado de '{local}'."
+        except Exception as e:
+            return f"Ocorreu um erro ao apagar o livro: {e}"
+
+    def extrair_textos_gaveta(self) -> str:
+        processed, errors = 0, 0
+        log_display("Iniciando extração de textos da Gaveta para a Estante...")
+        for file_path in self.gaveta_path.glob("*"):
+            if file_path.is_file() and file_path.suffix.lower() == ".txt":
+                try:
+                    shutil.move(str(file_path), self.estante_path / file_path.name)
+                    processed += 1
+                except Exception as e:
+                    log_display(f"Erro ao mover {file_path.name}: {e}")
+                    errors += 1
+        self._update_context()
+        return f"Processamento concluído. {processed} livros movidos para a Estante. {errors} erros."
+
+    # --- MÉTODOS DE SUPORTE (Não expostos como ferramentas) ---
+
+    def _update_context(self):
+        ctx = self.core_context.get("context")
+        if ctx:
+            livros = [p.stem for p in self.estante_path.glob("*.txt")]
+            ctx.set("library_books", livros)
 
     def _baixar_livro_thread(self, titulo, io_handler):
-        """Função executada em uma thread para não bloquear a UI."""
-        resultado = self.baixar_livro(titulo)
-        io_handler.falar(resultado)
-
-    def baixar_livro(self, titulo: str) -> str:
-        """Busca um livro no Project Gutenberg e o salva."""
-        # Tenta importar localmente caso tenha sido instalado em tempo de execução
         try:
             from googlesearch import search
             import requests
         except ImportError:
-            return "Erro: Dependências de internet (googlesearch, requests) não instaladas."
+            io_handler.falar("Erro: Dependências de internet não estão instaladas para baixar livros.")
+            return
 
         try:
             log_display(f"Buscando livro: {titulo}")
@@ -248,160 +198,35 @@ class BibliotecaModule(AeonModule):
             urls = list(search(query, num_results=1, lang="en"))
             
             if not urls:
-                return f"Não encontrei o livro '{titulo}' no Projeto Gutenberg."
+                io_handler.falar(f"Não encontrei o livro '{titulo}' no Projeto Gutenberg.")
+                return
             
             url = urls[0]
             log_display(f"Encontrado: {url}")
             
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            response = requests.get(url, headers=headers, timeout=20)
+            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=20)
             response.raise_for_status()
-            
             book_content = response.content.decode('utf-8', errors='replace')
             
-            safe_title = re.sub(r'[\\/*?:"<>|]', "", titulo)
+            safe_title = re.sub(r'[\\/*?:\"<>|]', "", titulo)
             file_path = self.gaveta_path / f"{safe_title}.txt"
-            
             file_path.write_text(book_content, encoding='utf-8')
                 
             self._update_context()
-            return f"O livro '{titulo}' foi baixado e salvo na sua biblioteca."
-
+            io_handler.falar(f"O livro '{titulo}' foi baixado e salvo na sua gaveta. Diga 'processar livros' para movê-lo para a estante.")
         except Exception as e:
             log_display(f"Erro ao baixar livro: {e}")
-            return f"Ocorreu um erro ao tentar baixar o livro: {e}"
+            io_handler.falar(f"Ocorreu um erro ao tentar baixar o livro.")
+    
+    # Funções antigas mantidas para referência ou uso interno, mas não como ferramentas primárias
+    def get_available_books(self) -> List[str]:
+        return [p.stem for p in self.estante_path.glob("*.txt")]
 
-    def extrair_textos_gaveta(self) -> str:
-        """
-        Processa os livros da 'gaveta' (input) e salva o texto limpo na 'Estante' (output).
-        """
-        processed = 0
-        errors = 0
-        
-        log_display("Iniciando extração de textos da Gaveta para a Estante...")
-        
-        for file_path in self.gaveta_path.glob("*"):
-            if file_path.is_file():
-                try:
-                    # Suporte atual: .txt (Futuramente PDF/EPUB)
-                    if file_path.suffix.lower() == ".txt":
-                        dest_path = self.estante_path / file_path.name
-                        shutil.move(str(file_path), str(dest_path))
-                        processed += 1
-                except Exception as e:
-                    log_display(f"Erro ao mover {file_path.name}: {e}")
-                    errors += 1
-        
-        self._update_context()
-        return f"Processamento concluído. {processed} livros movidos para a Estante. {errors} erros."
-
-    def listar_gaveta(self) -> str:
-        """Lista os arquivos na gaveta com índices para processamento individual."""
-        files = sorted([f for f in self.gaveta_path.glob("*") if f.is_file()])
-        if not files:
-            return "A gaveta de livros está vazia."
-        
-        lista = []
-        for i, f in enumerate(files, 1):
-            lista.append(f"{i}. {f.name}")
-        return "Livros na Gaveta (Input):\n" + "\n".join(lista)
-
-    def abrir_gaveta_explorer(self) -> str:
-        """Abre janela de seleção de arquivo para importar para a gaveta."""
+    def get_book_content(self, title: str) -> Optional[str]:
         try:
-            # Verifica se precisa criar um root do Tkinter (caso não esteja rodando via CTk)
-            created_root = False
-            if tk._default_root is None:
-                root = tk.Tk()
-                root.withdraw()
-                root.attributes("-topmost", True)
-                created_root = True
-
-            file_path = filedialog.askopenfilename(
-                title="Importar Livro para a Gaveta",
-                filetypes=[("Arquivos de Texto", "*.txt"), ("Todos os Arquivos", "*.*")]
-            )
-            
-            if created_root:
-                root.destroy()
-
-            if file_path:
-                filename = os.path.basename(file_path)
-                dest = self.gaveta_path / filename
-                shutil.copy2(file_path, dest)
-                self._update_context()
-                return f"Livro '{filename}' importado com sucesso para a gaveta."
-            
-            return "Importação cancelada."
-        except Exception as e:
-            return f"Erro ao abrir importador: {e}"
-
-    def extrair_livro_por_indice(self, indice: int) -> str:
-        """Processa um único livro da gaveta baseado no índice da listagem."""
-        files = sorted([f for f in self.gaveta_path.glob("*") if f.is_file()])
-        
-        if not files:
-            return "A gaveta está vazia."
-        
-        if indice < 1 or indice > len(files):
-            return f"Índice {indice} inválido. Escolha um número entre 1 e {len(files)}."
-            
-        target_file = files[indice - 1]
-        
-        # Reutiliza a lógica de extração (atualmente suporta .txt)
-        if target_file.suffix.lower() == ".txt":
-            try:
-                dest_path = self.estante_path / target_file.name
-                shutil.move(str(target_file), str(dest_path))
-                self._update_context()
-                return f"Livro '{target_file.name}' processado e movido para a Estante com sucesso."
-            except Exception as e:
-                return f"Erro ao mover '{target_file.name}': {e}"
-        else:
-            return f"O arquivo '{target_file.name}' não é um formato de texto suportado (.txt)."
-
-    def apagar_livro(self, nome_livro: str, local: str) -> str:
-        """Apaga um livro da 'gaveta' ou 'estante'."""
-        if local == "estante":
-            path = self.estante_path
-            try:
-                # Na estante, o nome é o 'stem', então buscamos pelo arquivo .txt
-                target_file = next(path.glob(f"{nome_livro}.txt"), None)
-                if not target_file or not target_file.exists():
-                    return f"Não encontrei o livro '{nome_livro}' na Estante."
-                
-                nome_real = target_file.name
-                target_file.unlink()  # Apaga o arquivo
-                self._update_context()
-                return f"O livro '{nome_real}' foi apagado da Estante."
-            except Exception as e:
-                return f"Ocorreu um erro ao apagar o livro da Estante: {e}"
-
-        elif local == "gaveta":
-            files = sorted([f for f in self.gaveta_path.glob("*") if f.is_file()])
-            target_file = None
-
-            # Tenta identificar por índice numérico
-            try:
-                indice = int(nome_livro)
-                if 1 <= indice <= len(files):
-                    target_file = files[indice - 1]
-                else:
-                    return f"Índice de livro inválido: {indice}. Use um número de 1 a {len(files)}."
-            except ValueError:
-                # Se não for um número, trata como nome de arquivo
-                target_file = next((f for f in files if f.name == nome_livro), None)
-            
-            if not target_file or not target_file.exists():
-                return f"Não encontrei o livro '{nome_livro}' na Gaveta. Tente usar o nome do arquivo ou o índice."
-            
-            try:
-                nome_real = target_file.name
-                target_file.unlink()  # Apaga o arquivo
-                self._update_context()
-                return f"O livro '{nome_real}' foi apagado da Gaveta."
-            except Exception as e:
-                return f"Ocorreu um erro ao apagar o livro da Gaveta: {e}"
-        
-        else:
-            return f"Local desconhecido '{local}'. Por favor, especifique 'gaveta' ou 'estante'."
+            target_file = next(self.estante_path.glob(f"{title}.txt"), None)
+            if target_file and target_file.exists():
+                return target_file.read_text(encoding='utf-8')
+            return None
+        except Exception:
+            return None

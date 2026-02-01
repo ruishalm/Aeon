@@ -1,3 +1,21 @@
 
 # Environment variables
 .env
+
+# Large model/data files
+*.onnx
+*.bin
+*.task
+*.sqlite3
+bagagem/kokoro/voices.json
+bagagem/models/systran-whisper-base/model.bin
+
+# Python cache
+__pycache__/
+
+# LFS
+*.lfs.*
+
+# Config files
+bagagem/system.json
+

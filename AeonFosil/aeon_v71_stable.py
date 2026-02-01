@@ -52,7 +52,7 @@ from groq import Groq
 #                               CONFIGURAÇÕES
 # ==============================================================================
 
-GROQ_KEY = "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"
+GROQ_KEY = "[CHAVE REMOVIDA POR SEGURANÇA]"
 
 CFG = {
     "mem": "memoria_aeon.json",

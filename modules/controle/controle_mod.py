@@ -50,78 +50,126 @@ class ControleModule(AeonModule):
         return True
 
     def process(self, command: str) -> str:
-        # Diagnóstico de módulos
+        # O método process agora serve como um fallback ou para gatilhos diretos
+        # que não são chamados pela IA.
         if "diagnóstico" in command or "diagnostico" in command or "verificar módulos" in command or "verificar modulos" in command:
-            module_manager = self.core_context.get("module_manager")
-            if module_manager:
-                return module_manager.diagnose_modules()
-            return "ModuleManager não encontrado."
-
-        # Reconectar ao serviço de nuvem
+            return self.diagnostico_modulos()
         if "conectar" in command or "online" in command or "reconectar" in command:
-            brain = self.core_context.get("brain")
-            status_manager = self.core_context.get("status_manager")
-            if brain:
-                msg = brain.reconectar()
-                if status_manager and brain.client and brain.online:
-                    status_manager.update_cloud_status(True)
-                return msg
-            return "Cérebro não encontrado."
-
-        # Instalar Ollama e baixar modelos
+            return self.reconectar_nuvem()
         if "instalar offline" in command or "baixar modelos" in command or "instalar ollama" in command:
             return self.instalar_offline()
-
-        # Recalibrar microfone
         if "calibrar microfone" in command or "ajustar áudio" in command or "recalibrar" in command:
-            io_handler = self.core_context.get("io_handler")
-            if io_handler:
-                if hasattr(io_handler, "recalibrar_mic"):
-                    io_handler.recalibrar_mic()
-                    msg = "Entendido. Silêncio por 3 segundos para recalibração."
-                else:
-                    msg = "A recalibração de microfone não está disponível neste núcleo de áudio."
-                return msg
-            return "IO Handler não encontrado."
-
+            return self.recalibrar_microfone()
         return ""
 
+    # --- Métodos de Ferramentas para a IA ---
+
+    def diagnostico_modulos(self) -> str:
+        """Executa um diagnóstico dos módulos."""
+        module_manager = self.core_context.get("module_manager")
+        if module_manager and hasattr(module_manager, 'get_info'):
+            # Supondo que get_info de cada módulo retorne um dict com o status
+            all_info = [m.get_info() for m in module_manager.get_loaded_modules()]
+            report = "Diagnóstico dos Módulos:\n"
+            for info in all_info:
+                status = "OK" if info.get('loaded') and info.get('dependencies_ok') else "FALHA"
+                report += f"- {info.get('name')}: {status}\n"
+            return report
+        return "Não foi possível acessar o gerenciador de módulos para o diagnóstico."
+
+    def reconectar_nuvem(self) -> str:
+        """Força a reconexão com o serviço de IA na nuvem."""
+        brain = self.core_context.get("brain")
+        if brain and hasattr(brain, 'reconectar'):
+            return brain.reconectar()
+        return "Cérebro não encontrado ou não suporta reconexão."
+
+    def recalibrar_microfone(self) -> str:
+        """Inicia o processo de recalibração do microfone."""
+        io_handler = self.core_context.get("io_handler")
+        if io_handler and hasattr(io_handler, "recalibrar_mic"):
+            io_handler.recalibrar_mic()
+            return "Entendido. Silêncio por 3 segundos para recalibração do microfone."
+        return "O handler de áudio não suporta recalibração."
+
     def instalar_offline(self) -> str:
-        """Instala Ollama e baixa modelos de forma offline em thread separada."""
+        """Instala Ollama e baixa modelos de IA para uso offline."""
         brain = self.core_context.get("brain")
         io_handler = self.core_context.get("io_handler")
         status_manager = self.core_context.get("status_manager")
 
         def install_thread():
-            # Verifica se o Ollama existe no PATH
             if not shutil.which("ollama"):
-                if io_handler:
-                    io_handler.falar("Ollama não encontrado. Tentando instalar...")
-                
+                if io_handler: io_handler.falar("Ollama não encontrado. Tentando instalar via winget...")
                 try:
-                    subprocess.run(["winget", "install", "Ollama.Ollama"], check=True)
-                    if io_handler:
-                        io_handler.falar("Ollama instalado com sucesso.")
-                except Exception:
-                    if io_handler:
-                        io_handler.falar("Erro ao instalar Ollama. Abri o site de downloads.")
+                    subprocess.run(["winget", "install", "Ollama.Ollama"], check=True, capture_output=True, text=True)
+                    if io_handler: io_handler.falar("Ollama instalado com sucesso.")
+                except Exception as e:
+                    if io_handler: io_handler.falar(f"Erro ao instalar Ollama: {e}. Abrindo o site para download manual.")
                     webbrowser.open("https://ollama.com/download")
                     return
 
-            # Baixar modelos
-            if io_handler:
-                io_handler.falar("Baixando modelos de IA. Pode demorar alguns minutos...")
-            
-            subprocess.Popen("ollama pull llama3.2")
+            if io_handler: io_handler.falar("Iniciando download dos modelos de IA offline. Isso pode demorar vários minutos.")
+            subprocess.Popen("ollama pull llama3")
             subprocess.Popen("ollama pull moondream")
 
-            # Atualizar status
-            brain.local_ready = True
-            if status_manager:
-                status_manager.update_local_status(True)
-            
-            if io_handler:
-                io_handler.falar("Modelos baixados! Agora estou funcionando offline.")
+            if brain: brain.local_ready = True
+            if status_manager: status_manager.update_local_status(True)
+            if io_handler: io_handler.falar("Modelos offline baixados. O Aeon agora pode funcionar sem internet.")
 
         threading.Thread(target=install_thread, daemon=True).start()
-        return "Iniciando instalação offline. Pode levar alguns minutos..."
+        return "Iniciando processo de instalação e download em segundo plano. Avisarei quando terminar."
+
+    # --- Declaração das Ferramentas para a IA ---
+
+    def get_tools(self) -> List[Dict[str, any]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "Controle.diagnostico_modulos",
+                    "description": "Verifica e reporta o status de todos os módulos carregados, informando se estão ativos e com as dependências resolvidas.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Controle.reconectar_nuvem",
+                    "description": "Força uma nova tentativa de conexão com o serviço de Inteligência Artificial na nuvem (Groq). Útil se a conexão cair.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Controle.recalibrar_microfone",
+                    "description": "Inicia o processo de recalibração do microfone para ajustar a sensibilidade ao ruído ambiente. Exige 3 segundos de silêncio.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Controle.instalar_offline",
+                    "description": "Inicia o processo de instalação do Ollama (se não estiver instalado) e o download dos modelos de IA 'llama3' e 'moondream' para permitir o funcionamento offline.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
+            }
+        ]

@@ -23,3 +23,8 @@ Pillow
 python-dotenv
 pipwin
 dateparser
+faster-whisper
+torch
+torchaudio
+kokoro-onnx
+soundfile

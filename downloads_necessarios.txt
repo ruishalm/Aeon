@@ -1,0 +1,6 @@
+# Arquivos grandes para baixar manualmente
+bagagem/kokoro/kokoro-v0_19.onnx
+bagagem/models/systran-whisper-base/model.bin
+bagagem/kokoro/voices.json
+modules/visao/hand_landmarker.task
+bagagem/vector_db/chroma.sqlite3

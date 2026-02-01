@@ -68,8 +68,9 @@ class VisaoModule(AeonModule):
         self.action_cooldown_end_time = 0
         self.ACTION_COOLDOWN_PERIOD = 2.0
 
-        if GEAR_AVAILABLE:
-            self._initialize_detector()
+        # O detector NÃO é mais inicializado aqui para evitar bloqueio na inicialização.
+        # if GEAR_AVAILABLE:
+        #     self._initialize_detector()
 
     def check_dependencies(self):
         # Verifica dependências de forma agregada
@@ -88,9 +89,9 @@ class VisaoModule(AeonModule):
     def on_load(self) -> bool:
         # O módulo é carregado mesmo que uma das funcionalidades esteja ausente.
         # A inicialização do detector já lida com o caso de GEAR_AVAILABLE ser False.
-        if GEAR_AVAILABLE:
-            print("[VISAO] Auto-iniciando câmera para gestos.")
-            self.start_gesture_vision()
+        # if GEAR_AVAILABLE:
+        #     print("[VISAO] Auto-iniciando câmera para gestos.")
+        #     # self.start_gesture_vision() # FIX: Desativado o auto-start para não bloquear a GUI na inicialização.
         return True
 
     def process(self, command: str) -> str:
@@ -213,8 +214,15 @@ class VisaoModule(AeonModule):
         self.detection_result = result
 
     def start_gesture_vision(self, debug=False):
+        # Adicionado para inicialização preguiçosa (lazy initialization)
+        if self.detector is None:
+            print("[VISAO] Primeira execução, inicializando o detector de gestos...")
+            self._initialize_detector()
+
         if not self.detector:
-            print("[VISAO][ERRO] Detector de gestos não inicializado.")
+            print("[VISAO][ERRO] Detector de gestos não inicializado. Não é possível iniciar a visão.")
+            io = self.core_context.get("io_handler")
+            if io: io.falar("Desculpe, não consegui iniciar o motor de visão.")
             return
         self.running = True
         self.debug_mode = debug

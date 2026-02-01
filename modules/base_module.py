@@ -93,6 +93,34 @@ class AeonModule(ABC):
     def is_loaded(self) -> bool:
         return self._loaded
 
+    def get_tools(self) -> List[Dict[str, Any]]:
+        """
+        Retorna uma lista de definições de ferramentas (funções) que este módulo expõe para a IA.
+        O formato deve ser compatível com a especificação de 'function calling' de LLMs.
+
+        Exemplo de retorno:
+        [
+          {
+            "type": "function",
+            "function": {
+              "name": "NomeDoModulo.nome_da_funcao",
+              "description": "Descrição clara do que a função faz.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "nome_do_param": {
+                    "type": "string",
+                    "description": "Descrição do parâmetro."
+                  }
+                },
+                "required": ["nome_do_param"]
+              }
+            }
+          }
+        ]
+        """
+        return []
+
     def get_info(self) -> Dict[str, Any]:
         return {
             "name": self.name,

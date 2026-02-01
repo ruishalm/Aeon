@@ -5,249 +5,247 @@ import pyautogui
 import shutil
 import subprocess
 import webbrowser
-from typing import List, Dict
+from typing import List, Dict, Any
 from modules.base_module import AeonModule
 
 class SistemaModule(AeonModule):
     """
-    Módulo para interagir com o sistema operacional:
-    - Controle de janelas
-    - Status do sistema (CPU/RAM)
-    - Abrir aplicativos indexados
-    - Gerenciamento de arquivos (criar/deletar pastas)
-    - Controle de rolagem
-    - Abrir e-mail
+    Módulo para interagir com o sistema operacional.
     """
     def __init__(self, core_context):
         super().__init__(core_context)
         self.name = "Sistema"
-        self.triggers = [
-            "minimize", "minimizar", "maximize", "maximizar", "restaurar", "restore",
-            "feche", "fechar", "close", "alterne para", "foco em", "janela",
-            "status do sistema", "uso de cpu", "desempenho do pc",
-            "abre", "iniciar", "role para", "scroll",
-            "crie uma pasta", "delete", "apague", "exclua",
-            "email", "sair", "desliga", "instalar pacote",
-            "bateria", "nível de bateria", "desligar computador", "reiniciar computador",
-            "volume máximo", "volume mudo"
+        self.dependencies = []
+        self.pending_action = None
+        self.indexed_apps = self.indexar_programas()
+        
+        # O process() antigo fica mais simples, os gatilhos podem ser removidos
+        # pois a IA vai chamar os métodos diretamente.
+        self.triggers = ["sistema", "janela", "status", "desempenho", "abre", "instalar", "desligar", "offline", "online"]
+
+    def get_tools(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "Sistema.obter_status_sistema",
+                    "description": "Retorna o uso atual da CPU e da memória RAM do sistema.",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Sistema.go_offline",
+                    "description": "Força o cérebro do Aeon a usar apenas o modelo de linguagem local, desativando a conexão com a nuvem.",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Sistema.go_online",
+                    "description": "Tenta reconectar o cérebro do Aeon à nuvem para usar o modelo de linguagem online.",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Sistema.focar_janela",
+                    "description": "Muda o foco do sistema para uma janela específica pelo seu título.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "titulo_janela": {
+                                "type": "string",
+                                "description": "O título ou parte do título da janela para focar. Ex: 'Google Chrome', 'Visual Studio Code'"
+                            }
+                        },
+                        "required": ["titulo_janela"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Sistema.instalar_pacote",
+                    "description": "Instala um pacote Python usando pip.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "nome_pacote": {
+                                "type": "string",
+                                "description": "O nome do pacote a ser instalado. Ex: 'requests', 'numpy'"
+                            }
+                        },
+                        "required": ["nome_pacote"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Sistema.desligar_computador",
+                    "description": "Inicia o processo de desligamento do computador do usuário.",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Sistema.reiniciar_computador",
+                    "description": "Inicia o processo de reinicialização do computador do usuário.",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Sistema.abrir_aplicativo",
+                    "description": "Abre um aplicativo indexado no sistema, como 'calculadora' ou 'notepad'.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "nome_app": {
+                                "type": "string",
+                                "description": "O nome do aplicativo a ser aberto. Ex: 'calculadora', 'bloco de notas', 'cmd'"
+                            }
+                        },
+                        "required": ["nome_app"]
+                    }
+                }
+            }
         ]
-        self.pending_action = None
-        self.indexed_apps = {}
-
-    @property
-    def dependencies(self) -> List[str]:
-        """Sistema não depende de nenhum componente externo."""
-        return []
-
-    @property
-    def metadata(self) -> Dict[str, str]:
-        """Metadados do módulo."""
-        return {
-            "version": "2.0.0",
-            "author": "Aeon Core",
-            "description": "Controla janelas, aplicativos e gerencia arquivos do sistema"
-        }
-
-    def on_load(self) -> bool:
-        """Inicializa o módulo - indexa programas disponíveis."""
-        try:
-            self.indexed_apps = self.indexar_programas()
-            print("[SISTEMA] Módulo de Sistema (sys_mod) carregado e indexado.")
-            return True
-        except Exception as e:
-            print(f"[SistemaModule] Erro ao carregar: {e}")
-            return False
-
-    def on_unload(self) -> bool:
-        """Limpa recursos ao descarregar."""
-        self.pending_action = None
-        self.indexed_apps = {}
-        return True
-
-    def indexar_programas(self) -> dict:
-        """Mapeia atalhos de programas do Menu Iniciar para seus caminhos."""
-        apps = {"calc": "calc", "notepad": "notepad", "cmd": "start cmd", "explorer": "explorer"}
-        start_menu = os.path.join(os.environ["ProgramData"], r"Microsoft\Windows\Start Menu\Programs")
-        for root, _, files in os.walk(start_menu):
-            for file in files:
-                if file.endswith(".lnk"):
-                    app_name = file.lower().replace(".lnk", "")
-                    apps[app_name] = os.path.join(root, file)
-        return apps
 
     def process(self, command: str) -> str:
-        # Lógica de confirmação de ação pendente (Ex: deletar)
-        if self.pending_action:
-            action = self.pending_action
-            self.pending_action = None # Limpa a ação
-            if command in ["sim", "confirmo", "confirme", "pode"]:
-                if action['type'] == 'delete':
-                    return self.deletar_item(action['path'], confirmado=True)
-            else:
-                return "Ação cancelada."
+        # A lógica principal agora é feita pela IA chamando os métodos diretamente.
+        # O método process vira um fallback para comandos de bypass.
+        if "status" in command: return self.obter_status_sistema()
+        if "desligar computador" in command: return self.desligar_computador()
+        if "reiniciar computador" in command: return self.reiniciar_computador()
+        if "ficar offline" in command: return self.go_offline()
+        if "ficar online" in command: return self.go_online()
+        return "Comando de sistema não reconhecido. Tente usar linguagem natural."
 
-        # Deleção
-        delete_triggers = ["delete", "apague", "exclua"]
-        if any(trigger in command for trigger in delete_triggers):
-            item_name = command
-            for trigger in delete_triggers:
-                item_name = item_name.replace(trigger, "")
-            item_name = item_name.replace("o arquivo", "").replace("a pasta", "").strip()
-            if item_name:
-                return self.deletar_item(item_name)
-            else:
-                return "Não entendi o que você quer deletar."
+    def go_offline(self) -> str:
+        """Força o cérebro a usar o modelo local."""
+        brain = self.core_context.get("brain")
+        if brain and hasattr(brain, 'force_offline'):
+            return brain.force_offline()
+        return "Não foi possível acessar o cérebro para forçar o modo offline."
 
-        # Controle de Janelas
-        acoes_janela = {
-            "minimize": "minimize", "minimizar": "minimize", "maximizar": "maximize",
-            "restaurar": "restore", "feche": "close", "fechar": "close",
-            "alterne para": "activate", "foco em": "activate"
+    def go_online(self) -> str:
+        """Tenta reconectar o cérebro ao modelo da nuvem."""
+        brain = self.core_context.get("brain")
+        if brain and hasattr(brain, 'force_online'):
+            return brain.force_online()
+        return "Não foi possível acessar o cérebro para forçar o modo online."
+
+    def indexar_programas(self) -> dict:
+        """Mapeia atalhos e nomes comuns de programas para seus caminhos/comandos."""
+        apps = {
+            "calculadora": "calc",
+            "bloco de notas": "notepad",
+            "notepad": "notepad",
+            "cmd": "start cmd",
+            "prompt": "start cmd",
+            "explorer": "explorer",
+            "arquivos": "explorer"
         }
-        for palavra, acao in acoes_janela.items():
-            if palavra in command:
-                partes = command.split(palavra)
-                titulo = partes[1].strip() if len(partes) > 1 and partes[1].strip() else None
-                return self.controlar_janela(acao, titulo)
-
-        # Status do Sistema
-        if any(t in command for t in ["status do sistema", "desempenho do pc"]):
-            return self.obter_status_sistema()
-
-        # Abrir Aplicativos
-        if "abre" in command or "iniciar" in command:
-            for name, path in self.indexed_apps.items():
-                if name in command:
-                    try:
-                        os.startfile(path)
-                        return f"Abrindo {name}..."
-                    except:
-                        os.system(path) # Fallback para comandos como 'cmd'
-                        return f"Iniciando {name}..."
-
-        # Criar Pasta
-        if "crie uma pasta" in command:
-            nome_pasta = command.split("crie uma pasta")[-1].strip()
-            if nome_pasta:
-                os.makedirs(nome_pasta, exist_ok=True)
-                return f"Pasta '{nome_pasta}' criada."
-            else:
-                return "Qual nome você quer para a pasta?"
-        
-        # Rolagem
-        if "role para cima" in command:
-            pyautogui.scroll(300)
-            return "" # Ação sem resposta verbal
-        if "role para baixo" in command:
-            pyautogui.scroll(-300)
-            return ""
-
-        # E-mail
-        if "email" in command:
-            webbrowser.open('mailto:')
-            return "Abrindo seu cliente de e-mail."
-
-        # Bateria
-        if "bateria" in command:
-            return self._check_battery()
-
-        # Desligamento do Computador (Real)
-        if "desligar computador" in command:
-            os.system("shutdown /s /t 10")
-            return "Iniciando desligamento do sistema em 10 segundos."
-            
-        if "reiniciar computador" in command:
-            os.system("shutdown /r /t 10")
-            return "Reiniciando o sistema em 10 segundos."
-
-        # Sair do programa Aeon (App)
-        if "sair" in command or ("desliga" in command and "computador" not in command):
-            io_handler = self.core_context.get("io_handler")
-            if io_handler:
-                io_handler.falar("Até logo.")
-            import os as os_module
-            os_module._exit(0)
-            return ""
-
-        # Volume (Placeholder/Básico)
-        if "volume" in command:
-            # Implementação robusta requer pycaw, aqui deixamos o aviso ou comando básico
-            return "Controle de volume requer configuração adicional de bibliotecas de áudio."
-
-        # Instalar pacote Python
-        if "instalar pacote" in command:
-            pkg_name = command.split("instalar pacote")[-1].strip()
-            if pkg_name:
-                return self.instalar_pacote(pkg_name)
-            else:
-                return "Qual pacote você quer instalar?"
-
-        return "" # Nenhum comando do módulo foi acionado
-
-    def controlar_janela(self, acao: str, titulo_alvo: str = None) -> str:
         try:
-            win = gw.getActiveWindow() if not titulo_alvo else gw.getWindowsWithTitle(titulo_alvo)[0]
-            if not win: return "Nenhuma janela encontrada."
-            
-            if acao == 'minimize': win.minimize()
-            elif acao == 'maximize': win.maximize()
-            elif acao == 'restore': win.restore()
-            elif acao == 'close': win.close()
-            elif acao == 'activate': win.activate()
-            
-            return f"Janela '{win.title[:20]}...' {acao}."
+            start_menu = os.path.join(os.environ["ProgramData"], r"Microsoft\Windows\Start Menu\Programs")
+            for root, _, files in os.walk(start_menu):
+                for file in files:
+                    if file.endswith(".lnk"):
+                        app_name = file.lower().replace(".lnk", "")
+                        apps[app_name] = os.path.join(root, file)
         except Exception as e:
-            return "Ocorreu um erro ao controlar a janela."
+            print(f"[Sistema] Erro ao indexar programas: {e}")
+        return apps
+
+    def abrir_aplicativo(self, nome_app: str) -> str:
+        """Abre um aplicativo pelo nome."""
+        app_name_lower = nome_app.lower()
+        path = self.indexed_apps.get(app_name_lower)
+        
+        if not path:
+            # Tenta encontrar por correspondência parcial
+            for indexed_name, indexed_path in self.indexed_apps.items():
+                if app_name_lower in indexed_name:
+                    path = indexed_path
+                    break
+        
+        if path:
+            try:
+                os.startfile(path)
+                return f"Abrindo {nome_app}..."
+            except:
+                os.system(path) # Fallback para comandos como 'cmd'
+                return f"Iniciando {nome_app}..."
+        else:
+            return f"Não encontrei o aplicativo '{nome_app}'."
+
+    def focar_janela(self, titulo_janela: str) -> str:
+        """Muda o foco para uma janela com base no título."""
+        try:
+            # gw.getWindowsWithTitle é case-sensitive, então iteramos para ser flexível
+            all_windows = gw.getAllTitles()
+            target_win = None
+            for title in all_windows:
+                if titulo_janela.lower() in title.lower():
+                    target_win = gw.getWindowsWithTitle(title)[0]
+                    break
+            
+            if not target_win: return f"Nenhuma janela com o título '{titulo_janela}' encontrada."
+            
+            target_win.activate()
+            return f"Foco alterado para a janela '{target_win.title[:30]}'."
+        except Exception as e:
+            return f"Ocorreu um erro ao focar na janela: {e}"
 
     def obter_status_sistema(self) -> str:
+        """Retorna o uso de CPU e RAM."""
         cpu = psutil.cpu_percent(interval=1)
         ram = psutil.virtual_memory().percent
-        return f"Uso da CPU em {cpu}% e memória RAM em {ram}%."
+        return f"No momento, o uso da CPU está em {cpu}% e a memória RAM em {ram}%."
 
-    def _check_battery(self):
+    def desligar_computador(self) -> str:
+        """Desliga o computador do usuário com um delay de 10 segundos."""
+        os.system("shutdown /s /t 10")
+        return "O computador será desligado em 10 segundos."
+
+    def reiniciar_computador(self) -> str:
+        """Reinicia o computador do usuário com um delay de 10 segundos."""
+        os.system("shutdown /r /t 10")
+        return "O computador será reiniciado em 10 segundos."
+
+    def instalar_pacote(self, nome_pacote: str) -> str:
+        """Instala um pacote Python usando pip em uma thread para não bloquear."""
+        import sys
+        import threading
+        
+        io_handler = self.core_context.get("io_handler")
+        
+        def install_in_thread():
+            try:
+                io_handler.falar(f"Iniciando instalação de {nome_pacote}.")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", nome_pacote])
+                io_handler.falar(f"Pacote {nome_pacote} instalado com sucesso.")
+            except Exception as e:
+                print(f"[Sistema][ERRO] Falha ao instalar pacote: {e}")
+                io_handler.falar(f"Desculpe, ocorreu um erro ao instalar o pacote {nome_pacote}.")
+        
+        threading.Thread(target=install_in_thread, daemon=True).start()
+        return f"Certo. A instalação de '{nome_pacote}' foi iniciada em segundo plano."
+
+    # Funções de suporte que não são expostas como ferramentas diretas
+    def _check_battery(self) -> str:
         if not hasattr(psutil, "sensors_battery"):
             return "Não consigo ler sensores de bateria neste sistema."
-            
         battery = psutil.sensors_battery()
         if battery:
             plugged = "conectado à energia" if battery.power_plugged else "usando bateria"
             percent = battery.percent
             return f"A bateria está em {percent}% e {plugged}."
-        else:
-            return "Este computador não parece ter uma bateria."
-
-    def deletar_item(self, item_path: str, confirmado: bool = False) -> str:
-        caminho_completo = os.path.abspath(item_path)
-        if not os.path.exists(caminho_completo):
-            return f"Desculpe, não encontrei '{item_path}'."
-
-        if not confirmado:
-            self.pending_action = {'type': 'delete', 'path': caminho_completo}
-            return f"Atenção, esta ação é permanente. Você tem certeza que quer deletar '{os.path.basename(caminho_completo)}'?"
-        else:
-            try:
-                if os.path.isfile(caminho_completo):
-                    os.remove(caminho_completo)
-                    return f"Arquivo '{os.path.basename(caminho_completo)}' deletado."
-                elif os.path.isdir(caminho_completo):
-                    shutil.rmtree(caminho_completo)
-                    return f"A pasta '{os.path.basename(caminho_completo)}' foi deletada."
-            except Exception as e:
-                return f"Ocorreu um erro ao tentar deletar: {e}"
-    def instalar_pacote(self, nome_pacote: str) -> str:
-        """Instala um pacote Python usando pip em uma thread separada."""
-        import sys
-        import threading
-        
-        def install_in_thread():
-            io_handler = self.core_context.get("io_handler")
-            try:
-                subprocess.check_call([sys.executable, "-m", "pip", "install", nome_pacote])
-                if io_handler:
-                    io_handler.falar(f"Pacote {nome_pacote} instalado com sucesso.")
-            except Exception as e:
-                if io_handler:
-                    io_handler.falar(f"Erro ao instalar {nome_pacote}.")
-        
-        threading.Thread(target=install_in_thread, daemon=True).start()
-        return f"Instalando o pacote {nome_pacote}. Aguarde..."
+        return "Este computador não parece ter uma bateria."

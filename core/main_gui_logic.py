@@ -249,12 +249,29 @@ class AeonGUI(ctk.CTk):
             threading.Thread(target=self.process_in_background, args=(txt,), daemon=True).start()
 
     def process_in_background(self, txt):
-        try:
-            response = self.module_manager.route_command(txt)
-            self.after(0, lambda: self.add_message(response, "AEON"))
-            self.after(0, lambda: self.io_handler.falar(response))
-        except Exception as e:
-            self.after(0, lambda: self.add_message(f"Erro Crítico: {e}", "SISTEMA"))
+        # Feedback visual imediato para o usuário não achar que travou
+        self.lbl_cpu.configure(text="CPU: PROCESSANDO...") 
+        
+        # Toca um som de "computando" se possível (opcional)
+        if self.io_handler:
+            # Toca um som curto assíncrono para dar feedback tátil
+            threading.Thread(target=lambda: self.io_handler.play_feedback_sound('start'), daemon=True).start()
+
+        def _task():
+            try:
+                # O processamento pesado acontece aqui
+                response = self.module_manager.route_command(txt)
+                
+                # Atualiza GUI na thread principal
+                self.after(0, lambda: self.add_message(response, "AEON"))
+                self.after(0, lambda: self.io_handler.falar(response))
+            except Exception as e:
+                self.after(0, lambda: self.add_message(f"Erro Crítico: {e}", "SISTEMA"))
+            finally:
+                 self.after(0, lambda: self.lbl_cpu.configure(text="CPU: OCIOSO"))
+
+        # Lança a thread de pensamento
+        threading.Thread(target=_task, daemon=True).start()
 
     def toggle_mic(self):
         threading.Thread(target=self.process_in_background, args=("escuta passiva",), daemon=True).start()
