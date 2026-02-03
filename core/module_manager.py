@@ -1,197 +1,218 @@
-import os
-import sys
 import importlib
 import inspect
+import sys
 import threading
+from pathlib import Path
+
+from modules.base_module import AeonModule
+from core.memory_vector import VectorMemory
+
+def log_display(msg):
+    print(f"[MOD_MANAGER] {msg}")
 
 class ModuleManager:
+    """
+    Carrega, gerencia e roteia comandos para todos os módulos do Aeon.
+    """
+    
     def __init__(self, core_context):
-        # compatibilidade com testes e código existente
         self.core_context = core_context
-        self.context = core_context
-
-        # Lista de instâncias dos módulos carregados
         self.modules = []
-        # Mapas úteis
-        self.module_map = {}   # name (lower) -> instance
-        self.trigger_map = {}  # trigger -> instance
-
-        # Histórico de conversa para passagem ao Brain
+        self.trigger_map = {}
+        self.module_map = {}
+        self.failed_modules = []
+        
+        self.focused_module = None
+        self.focus_timeout = None
+        self.focus_lock = threading.Lock()
+        
         self.chat_history = []
         self.max_history = 10
+        self.history_lock = threading.Lock()
+        
+        # Inicializa Memória Vetorial
+        self.vector_memory = None
+        config_mgr = self.core_context.get("config_manager")
+        if config_mgr:
+            self.vector_memory = VectorMemory(str(config_mgr.storage_path))
 
     def load_modules(self):
-        """Varre a pasta 'modules' e carrega tudo dinamicamente."""
-        print("[MOD_MANAGER] Iniciando varredura de módulos...")
-        
-        # Caminho absoluto da pasta modules
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        modules_dir = os.path.join(base_dir, "modules")
-        
-        if not os.path.exists(modules_dir):
-            print(f"[ERRO] Pasta de módulos não encontrada: {modules_dir}")
-            return
+        """Escaneia /modules e carrega tudo."""
+        # CORREÇÃO: Usa resolve() para caminho absoluto
+        modules_dir = Path(__file__).resolve().parent.parent / "modules"
+        log_display(f"Carregando módulos de: {modules_dir}")
 
-        # Garante que o Python enxerga a pasta raiz
-        if base_dir not in sys.path:
-            sys.path.append(base_dir)
+        for item in modules_dir.iterdir():
+            if item.is_dir() and item.name != "__pycache__":
+                try:
+                    for mod_file in item.glob("*_mod.py"):
+                        module_name = f"modules.{item.name}.{mod_file.stem}"
+                        self._import_and_register(module_name)
+                except Exception as e:
+                    log_display(f"  ✗ Erro ao carregar '{item.name}': {e}")
 
-        # Varre cada subpasta (audicao, visao, etc)
-        for folder_name in os.listdir(modules_dir):
-            folder_path = os.path.join(modules_dir, folder_name)
-            
-            # Ignora arquivos soltos e pastas ocultas (__pycache__)
-            if os.path.isdir(folder_path) and not folder_name.startswith("__"):
-                self._load_single_module(folder_name)
+        log_display(f"Módulos carregados: {len(self.modules)}")
 
-        print(f"[MOD_MANAGER] Total de módulos carregados: {len(self.modules)}")
-
-    def _load_single_module(self, module_name):
+    def _import_and_register(self, module_name):
+        """Helper para importar e registrar um único módulo com HOT RELOAD."""
         try:
-            # Tenta importar: modules.audicao.stt_mod (exemplo)
-            module_pkg = importlib.import_module(f"modules.{module_name}")
-
-            # Procura o arquivo principal dentro do pacote
-            target_file = None
-            for f in os.listdir(os.path.join("modules", module_name)):
-                if f.endswith("_mod.py"):
-                    target_file = f[:-3]  # Remove .py
-                    break
-
-            if target_file:
-                full_import_name = f"modules.{module_name}.{target_file}"
-                mod_lib = importlib.import_module(full_import_name)
-
-                for name, obj in inspect.getmembers(mod_lib):
-                    if inspect.isclass(obj) and hasattr(obj, "process"):
-                        instance = obj(self.core_context)
-                        # Compatibilidade: lista e mapas
-                        self.modules.append(instance)
-                        self.module_map[instance.name.lower()] = instance
-
-                        # Registra triggers
-                        if hasattr(instance, "triggers"):
-                            for trigger in instance.triggers:
-                                self.trigger_map[trigger.lower()] = instance
-
-                        print(f"   [OK] Módulo carregado: {instance.name}")
+            if module_name in sys.modules:
+                module_import = importlib.reload(sys.modules[module_name])
+                log_display(f"  ↻ Módulo '{module_name}' recarregado (Hot Reload).")
+            else:
+                module_import = importlib.import_module(module_name)
+            
+            for name, obj in inspect.getmembers(module_import):
+                if inspect.isclass(obj) and issubclass(obj, AeonModule) and obj is not AeonModule:
+                    module_instance = obj(self.core_context)
+                    if not module_instance.check_dependencies():
+                        log_display(f"  ⚠ Dependências falharam para {module_instance.name}")
                         return
 
+                    if module_instance.on_load():
+                        self.modules.append(module_instance)
+                        self.module_map[module_instance.name.lower()] = module_instance
+                        for trigger in module_instance.triggers:
+                            self.trigger_map[trigger.lower()] = module_instance
+                        log_display(f"  ✓ {module_instance.name} registrado.")
+                    break
         except Exception as e:
-            print(f"   [FALHA] Erro ao carregar '{module_name}': {e}")
+            log_display(f"Erro importando {module_name}: {e}")
+
+    def scan_new_modules(self):
+        """Re-escaneia módulos (usado pela Singularidade)."""
+        log_display("Re-escaneando novos módulos...")
+        self.trigger_map = {}
+        self.modules = []
+        self.load_modules()
+        return ["Reloaded"]
 
     def _format_history(self):
-        """Formata o histórico em texto para envio ao Brain."""
-        if not self.chat_history:
-            return ""
-        lines = []
-        for msg in self.chat_history:
-            if msg.get("role") == "user":
-                lines.append(f"Usuário: {msg.get('content')}")
-            else:
-                lines.append(f"Aeon: {msg.get('content')}")
-        return "\n".join(lines)
+        """Formata histórico para o LLM de forma segura."""
+        with self.history_lock:
+            history_text = ""
+            for msg in self.chat_history:
+                role = "Usuário" if msg['role'] == 'user' else "Aeon"
+                history_text += f"{role}: {msg['content']}\n"
+            return history_text
 
-    def _append_to_history(self, role, content):
-        self.chat_history.append({"role": role, "content": content})
-        # FIFO cleanup
-        while len(self.chat_history) > self.max_history * 2:
-            self.chat_history.pop(0)
+    def get_capabilities_summary(self) -> str:
+        """Retorna uma lista de todos os módulos e o que eles fazem para o Brain."""
+        summary = "Você tem acesso aos seguintes módulos técnicos:\n"
+        for mod in self.modules:
+            desc = getattr(mod, 'metadata', {}).get('description', 'Sem descrição.')
+            summary += f"- {mod.name}: {desc} (Gatilhos: {', '.join(mod.triggers[:5])})\n"
+        return summary
 
-    def route_command(self, text):
-        """Recebe o texto do usuário, tenta módulos locais e depois consulta o Brain."""
-        text_lower = text.lower()
+    def route_command(self, command: str) -> str:
+        """Roteia comando com PRIORIDADE DE TAMANHO."""
+        command_lower = command.lower()
+        response = ""
 
-        # 1. Checa triggers rápidos
-        for trigger, module_instance in self.trigger_map.items():
-            if trigger in text_lower:
+        # 1. MODO FOCO
+        if self.focused_module is not None:
+            log_display(f"🔒 FOCO: {self.focused_module.name}")
+            return self.focused_module.process(command) or ""
+        
+        # 2. MODO LIVRE (Ordenado)
+        triggered = False
+        sorted_triggers = sorted(self.trigger_map.items(), key=lambda x: len(x[0]), reverse=True)
+
+        for trigger, module in sorted_triggers:
+            if trigger in command_lower:
+                if not module.check_dependencies():
+                    return f"Erro: Dependência de {module.name} falhou."
+                
+                log_display(f"Trigger '{trigger}' acionou '{module.name}'")
+                response = module.process(command)
+                triggered = True
+                break 
+
+        # 3. FALLBACK (Brain)
+        if not triggered:
+            brain = self.core_context.get("brain")
+            if brain:
+                hist = self._format_history()
+                caps = self.get_capabilities_summary()
+                
+                # Recupera memórias de longo prazo relevantes para a pergunta atual
+                long_term = ""
+                if self.vector_memory:
+                    long_term = self.vector_memory.retrieve_relevant(command)
+                
+                # Chama brain.pensar com parâmetros compatíveis
+                # Tenta com novos parâmetros, senão usa os básicos
                 try:
-                    return module_instance.process(text)
-                except Exception as e:
-                    return f"Erro no módulo {module_instance.name}: {e}"
-
-        # 2. Se não houver módulo local, consulta o Brain (se existir)
-        brain = self.core_context.get("brain") if self.core_context else None
-        historico_txt = self._format_history()
-
-        if brain:
-            ai_decision = brain.pensar(prompt=text, historico_txt=historico_txt, user_prefs={})
-
-            # Interpreta a decisão da IA
-            try:
+                    ai_decision = brain.pensar(
+                        prompt=command,
+                        historico_txt=hist,
+                        user_prefs={},
+                        capabilities=caps,
+                        long_term_context=long_term
+                    )
+                except TypeError:
+                    # Fallback para assinatura antiga
+                    ai_decision = brain.pensar(
+                        prompt=command,
+                        historico_txt=hist,
+                        user_prefs={}
+                    )
+                
+                # Interpreta resposta da IA
                 if isinstance(ai_decision, dict):
-                    # Chamadas de ferramenta
+                    # Chamada de ferramenta
                     if ai_decision.get("tool_name"):
                         tool = ai_decision["tool_name"]
                         params = ai_decision.get("parameters", {})
-
+                        
                         try:
                             mod_name, func_name = tool.split(".")
                         except ValueError:
-                            return "formato de ferramenta inválido"
-
-                        mod = self.module_map.get(mod_name.lower())
-                        if not mod:
-                            return "ferramenta inexistente"
-
-                        # Chama método com parâmetros
-                        if hasattr(mod, func_name):
-                            result = getattr(mod, func_name)(**params)
-                            # Salva histórico
-                            self._append_to_history("user", text)
-                            self._append_to_history("assistant", str(result))
-                            return result
+                            response = "Erro: formato de ferramenta inválido"
                         else:
-                            # Ferramenta não existe no módulo
-                            resp = "ferramenta inexistente"
-                            self._append_to_history("user", text)
-                            self._append_to_history("assistant", resp)
-                            return resp
-
+                            mod = self.module_map.get(mod_name.lower())
+                            if not mod:
+                                response = "ferramenta inexistente"
+                            elif hasattr(mod, func_name):
+                                response = str(getattr(mod, func_name)(**params))
+                            else:
+                                response = "ferramenta inexistente"
                     # Fallback de conversa
-                    if ai_decision.get("fallback"):
-                        resp = ai_decision.get("fallback")
-                        self._append_to_history("user", text)
-                        self._append_to_history("assistant", resp)
-                        return resp
-
-                # Se a IA retornou uma string (conversação)
-                if isinstance(ai_decision, str):
-                    self._append_to_history("user", text)
-                    self._append_to_history("assistant", ai_decision)
-                    return ai_decision
-
-                # Default
-                return str(ai_decision)
-            except Exception as e:
-                return f"Erro ao processar decisão da IA: {e}"
-
-        # Sem brain e sem módulo -> None
-        return None
-
-    def executar_ferramenta(self, tool_name, param):
-        """Executa uma ferramenta pedida pelo Cérebro (JSON)"""
-        # Formato esperado: "Visao.process" ou "Sistema.criar_arquivo"
-        try:
-            mod_name, func_name = tool_name.split(".")
-            
-            # Acha o módulo (ignora case)
-            module = None
-            for name, mod in self.modules.items():
-                if name.lower() == mod_name.lower():
-                    module = mod
-                    break
-            
-            if not module:
-                return f"Ferramenta desconhecida: {mod_name}"
-            
-            # Tenta chamar a função
-            if hasattr(module, func_name):
-                method = getattr(module, func_name)
-                return method(param)
+                    elif ai_decision.get("fallback"):
+                        response = ai_decision.get("fallback")
+                    else:
+                        response = str(ai_decision)
+                else:
+                    # String simples = conversa
+                    response = str(ai_decision)
             else:
-                # Se não achar a função específica, tenta passar pro process() genérico
-                return module.process(f"{func_name} {param}")
+                response = "Cérebro indisponível."
+
+        # 4. MEMÓRIA (Thread-Safe)
+        if response:
+            with self.history_lock:
+                self.chat_history.append({"role": "user", "content": command})
+                self.chat_history.append({"role": "assistant", "content": response})
                 
-        except Exception as e:
-            return f"Erro ao executar ferramenta: {e}"
+                # Salva a interação na memória de longo prazo (apenas se não for comando de módulo)
+                if self.vector_memory and not triggered:
+                    self.vector_memory.store_interaction(command, response)
+                
+                # Garante que a lista não exceda o tamanho máximo
+                history_len = len(self.chat_history)
+                if history_len > self.max_history * 2:
+                    self.chat_history = self.chat_history[history_len - self.max_history * 2:]
+
+        return response if response else ""
+
+    # Métodos de Foco
+    def lock_focus(self, module, timeout=None):
+        with self.focus_lock:
+            self.focused_module = module
+    
+    def release_focus(self):
+        with self.focus_lock:
+            self.focused_module = None
+
+    def get_loaded_modules(self):
+        return self.modules
