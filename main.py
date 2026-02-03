@@ -114,3 +114,11 @@ except Exception as e_top:
         f.write("--- Traceback ---\n")
         traceback.print_exc(file=f)
     raise
+
+
+# No final do seu main.py
+if __name__ == "__main__":
+    # ... seu código de boot ...
+    # Quando o app.exec() ou mainloop() terminar:
+    print("[SYSTEM] Desligando motores...")
+    sys.exit(0)
