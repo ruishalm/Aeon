@@ -16,6 +16,7 @@ class ModuleManager:
 
     def load_modules(self):
         """Carrega módulos da pasta modules/ e notifica a GUI."""
+        print("[MOD_MANAGER] INICIANDO CARREGAMENTO DE MÓDULOS...")
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "modules")
         print(f"[MOD_MANAGER] Buscando em: {path}")
         
@@ -25,52 +26,60 @@ class ModuleManager:
                 self.on_all_modules_loaded()
             return
 
-        for name in os.listdir(path):
+        module_folders = [name for name in os.listdir(path) if os.path.isdir(os.path.join(path, name)) and not name.startswith("__")]
+        
+        for name in module_folders:
             mod_path = os.path.join(path, name)
-            if os.path.isdir(mod_path) and not name.startswith("__"):
-                try:
-                    found_py = False
-                    for f in os.listdir(mod_path):
-                        if f.endswith(".py") and not f.startswith("__"):
-                            module_name = f"modules.{name}.{f[:-3]}"
-                            lib = importlib.import_module(module_name)
-                            
-                            # Procura a classe principal do módulo
-                            for attr_name in dir(lib):
-                                attr = getattr(lib, attr_name)
-                                # CORREÇÃO: Usa issubclass para uma verificação Pythônica e robusta
-                                if isinstance(attr, type) and issubclass(attr, AeonModule) and attr is not AeonModule:
-                                    instance = attr(self.core)
-                                    self.modules[instance.name.lower()] = instance
-                                    print(f"[MOD_MANAGER] + Módulo '{instance.name}' carregado.")
+            try:
+                print(f"[MOD_MANAGER] -> Processando diretório: '{name}'...")
+                found_py = False
+                for f in os.listdir(mod_path):
+                    if f.endswith(".py") and not f.startswith("__"):
+                        module_name = f"modules.{name}.{f[:-3]}"
+                        
+                        print(f"    - Importando '{module_name}'...")
+                        lib = importlib.import_module(module_name)
+                        
+                        # Procura a classe principal do módulo
+                        for attr_name in dir(lib):
+                            attr = getattr(lib, attr_name)
+                            if isinstance(attr, type) and issubclass(attr, AeonModule) and attr is not AeonModule:
+                                print(f"    - Instanciando classe '{attr_name}'...")
+                                instance = attr(self.core)
+                                
+                                # Chama o on_load, se existir, e verifica se foi bem-sucedido
+                                if hasattr(instance, 'on_load') and not instance.on_load():
+                                    print(f"[MOD_MANAGER] [AVISO] 'on_load' do módulo '{instance.name}' retornou False. O módulo não será ativado.")
+                                    continue # Pula para o próximo
+
+                                self.modules[instance.name.lower()] = instance
+                                print(f"[MOD_MANAGER] + Módulo '{instance.name}' carregado e ATIVADO.")
+                                
+                                # Registra gatilhos
+                                if hasattr(instance, 'triggers'):
+                                    for t in instance.triggers:
+                                        self.triggers[t.lower()] = instance.name.lower()
+                                
+                                # Registra ferramentas
+                                if hasattr(instance, 'get_tools'):
+                                    self.tools_json.extend(instance.get_tools())
                                     
-                                    # Registra gatilhos
-                                    if hasattr(instance, 'triggers'):
-                                        for t in instance.triggers:
-                                            self.triggers[t.lower()] = instance.name.lower()
+                                if self.on_module_loaded:
+                                    self.on_module_loaded(instance.name)
                                     
-                                    # Registra ferramentas (Functions para a IA)
-                                    if hasattr(instance, 'get_tools'):
-                                        self.tools_json.extend(instance.get_tools())
-                                        
-                                    # Notifica a GUI que este módulo específico foi carregado
-                                    if self.on_module_loaded:
-                                        self.on_module_loaded(instance.name)
-                                        
-                                    found_py = True
-                                    break # Para de procurar classes no mesmo arquivo
-                        if found_py: break
-                except Exception as e:
-                    print(f"[MOD_MANAGER] Erro ao carregar o módulo '{name}': {e}")
-                    traceback.print_exc(limit=1)
+                                found_py = True
+                                break 
+                if found_py: break
+            except Exception as e:
+                print(f"[MOD_MANAGER] ERRO FATAL ao carregar o módulo '{name}': {e}")
+                traceback.print_exc(limit=1)
         
         print(f"[MOD_MANAGER] Carregamento concluído. {len(self.modules)} módulos ativos.")
-        # Salva o JSON de ferramentas para depuração
         with open("tools.json", "w", encoding="utf-8") as f:
             json.dump(self.tools_json, f, indent=2, ensure_ascii=False)
             
-        # Notifica a GUI que todos os módulos foram processados
         if self.on_all_modules_loaded:
+            print("[MOD_MANAGER] Notificando GUI que o carregamento terminou.")
             self.on_all_modules_loaded()
 
     def route_command(self, text: str) -> str:
