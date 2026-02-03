@@ -14,28 +14,45 @@ class VectorMemory:
         os.makedirs(self.db_path, exist_ok=True)
         self.client = chromadb.PersistentClient(path=self.db_path)
         
-        # Usaremos um modelo de embedding leve que roda localmente
-        # Nota: Requer 'pip install sentence-transformers'
-        self.embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="all-MiniLM-L6-v2"
-        )
+        self.collection = None
+        self.available = False
         
-        self.collection = self.client.get_or_create_collection(
-            name="aeon_long_term_memory",
-            embedding_function=self.embed_fn
-        )
+        # Tenta inicializar com SentenceTransformer (pode falhar se PyTorch estiver quebrado)
+        try:
+            self.embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name="all-MiniLM-L6-v2"
+            )
+            self.collection = self.client.get_or_create_collection(
+                name="aeon_long_term_memory",
+                embedding_function=self.embed_fn
+            )
+            self.available = True
+            print("[VECTOR_MEM] ✓ VectorMemory inicializado com sucesso.")
+        except Exception as e:
+            print(f"[VECTOR_MEM] ⚠ VectorMemory desabilitado: {e}")
+            print("[VECTOR_MEM] Sistema continua funcionando sem memória de longo prazo.")
+            self.available = False
 
     def store_interaction(self, user_input, aeon_response):
         """Guarda uma interação no banco vetorial."""
-        text_to_embed = f"Usuário: {user_input} | Aeon: {aeon_response}"
-        self.collection.add(
-            documents=[text_to_embed],
-            ids=[str(uuid.uuid4())],
-            metadatas=[{"timestamp": time.time()}]
-        )
+        if not self.available or not self.collection:
+            return
+        
+        try:
+            text_to_embed = f"Usuário: {user_input} | Aeon: {aeon_response}"
+            self.collection.add(
+                documents=[text_to_embed],
+                ids=[str(uuid.uuid4())],
+                metadatas=[{"timestamp": time.time()}]
+            )
+        except Exception as e:
+            print(f"[VECTOR_MEM] Erro ao armazenar: {e}")
 
     def retrieve_relevant(self, query, n_results=3):
         """Busca as memórias mais parecidas com a pergunta atual."""
+        if not self.available or not self.collection:
+            return ""
+        
         try:
             results = self.collection.query(
                 query_texts=[query],

@@ -34,7 +34,11 @@ class ModuleManager:
         self.vector_memory = None
         config_mgr = self.core_context.get("config_manager")
         if config_mgr:
-            self.vector_memory = VectorMemory(str(config_mgr.storage_path))
+            try:
+                self.vector_memory = VectorMemory(str(config_mgr.storage_path))
+            except Exception as e:
+                log_display(f"⚠ Falha ao inicializar VectorMemory: {e}")
+                self.vector_memory = None
 
     def load_modules(self):
         """Escaneia /modules e carrega tudo."""
