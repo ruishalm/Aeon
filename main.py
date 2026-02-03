@@ -1,124 +1,116 @@
-import os
 import sys
 import threading
-import warnings
-import traceback
-from dotenv import load_dotenv
+import time
 
-# Arquivo de log para depuração de falhas silenciosas
-LOG_FILE = "error.log" 
-# Usar um nome de arquivo simples para portabilidade
+# Defer all imports to see which one hangs
 
-try:
-    # Carrega as variáveis de ambiente do arquivo .env
-    load_dotenv()
+def log(msg):
+    """Função de log com timestamp para depuração."""
+    print(f"[{time.time():.2f}] [MAIN] {msg}")
 
-    warnings.filterwarnings("ignore", category=UserWarning, module='pygame')
+if __name__ == "__main__":
+    log("Iniciando importações uma a uma...")
 
-    # Ajusta caminho para encontrar os módulos
-    ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-    sys.path.append(ROOT_DIR)
-    
-    # --- IMPORTAÇÕES CENTRALIZADAS DO CORE ---
+    log("Importando QApplication...")
+    from PyQt5.QtWidgets import QApplication
+    log("Importou QApplication.")
+
+    log("Importando SphereUI...")
+    from core.gui_sphere import SphereUI
+    log("Importou SphereUI.")
+
+    log("Importando ConfigManager...")
     from core.config_manager import ConfigManager
-    from core.context_manager import ContextManager
+    log("Importou ConfigManager.")
+    
+    log("Importando IOHandler...")
     from core.io_handler import IOHandler
+    log("Importou IOHandler.")
+
+    log("Importando AeonBrain...")
     from core.brain import AeonBrain
+    log("Importou AeonBrain.")
+
+    log("Importando ModuleManager...")
     from core.module_manager import ModuleManager
+    log("Importou ModuleManager.")
 
-    if __name__ == "__main__":
-        print(f"=== AEON V86 SYSTEM BOOT (ROOT: {ROOT_DIR}) ===")
-        
-        # 1. --- INICIALIZAÇÃO CENTRAL DO CORE ---
-        print("[BOOT] Inicializando subsistemas do Core...")
-        config_manager = ConfigManager()
-        context_manager = ContextManager()
-        io_handler = IOHandler(config_manager.config, None)
-        brain = AeonBrain(config_manager)
-        
-        core_context = {
-            "config_manager": config_manager,
-            "context_manager": context_manager,
-            "io_handler": io_handler,
-            "brain": brain,
-            "gui": None,
-            "workspace": os.path.join(ROOT_DIR, "workspace")
-        }
-        
-        module_manager = ModuleManager(core_context)
-        core_context["module_manager"] = module_manager
-        
-        # 2. --- SELEÇÃO E CRIAÇÃO DA GUI ---
-        # A GUI é criada ANTES da thread de módulos para evitar race condition.
-        use_dashboard = "--gui" in sys.argv
-        gui_app = None
-        qt_app = None
+    log("Importando MainLogic...")
+    from core.main_gui_logic import MainLogic
+    log("Importou MainLogic.")
 
+    log("Todas as importações foram concluídas.")
+
+    # --- O CÓDIGO ORIGINAL COMEÇA AQUI ---
+
+    def boot_sequence(esfera_ui, logic_controller):
+        """Carrega o sistema pesado em Background"""
+        log("Thread de boot iniciada.")
         try:
-            if use_dashboard:
-                print("[BOOT] Criando instância do Dashboard Cyberpunk...")
-                from core.main_gui_logic import AeonGUI
-                gui_app = AeonGUI(core_context) 
-            else:
-                try:
-                    from PyQt6.QtWidgets import QApplication
-                    from core.gui_sphere import AeonSphere
-                    print("[BOOT] Criando instância da Interface Neural (Esfera)...")
-                    qt_app = QApplication(sys.argv)
-                    gui_app = AeonSphere(core_context)
-                except ImportError:
-                    print("\n[ALERTA] A interface da Esfera (PyQt6) não pôde ser carregada.")
-                    raise
+            log("Carregando ConfigManager...")
+            config = ConfigManager()
+            log("ConfigManager Carregado.")
+            esfera_ui.add_message("Sistema de Áudio...", "BOOT")
             
-            if gui_app:
-                core_context["gui"] = gui_app
-                
-                # 3. --- CARREGAMENTO DE MÓDULOS EM SEGUNDO PLANO ---
-                # A thread só é iniciada DEPOIS que a GUI existe e registrou seus callbacks.
-                print("[BOOT] Disparando carregamento de módulos em segundo plano...")
-                module_loader_thread = threading.Thread(target=module_manager.load_modules, daemon=True)
-                module_loader_thread.start()
-
-                # 4. --- LANÇAMENTO DA GUI ---
-                if use_dashboard:
-                    gui_app.mainloop()
-                else:
-                    gui_app.show()
-                    sys.exit(qt_app.exec())
+            log("Carregando IOHandler...")
+            io = IOHandler(config.system_data)
+            log("IOHandler Carregado.")
+            
+            log("Carregando AeonBrain...")
+            brain = AeonBrain(config)
+            log("AeonBrain Carregado.")
+            esfera_ui.add_message("Conectando Neural...", "BOOT")
+            
+            log("Carregando ModuleManager...")
+            context = {
+                "config_manager": config,
+                "io_handler": io,
+                "brain": brain,
+                "gui": esfera_ui
+            }
+            mods = ModuleManager(context)
+            mods.load_modules()
+            log("ModuleManager Carregado e módulos escaneados.")
+            
+            log("Registrando módulos na lógica principal...")
+            logic_controller.register_modules(mods, io)
+            log("Módulos registrados.")
+            
+            esfera_ui.set_status("ONLINE")
+            esfera_ui.add_message("Sistema Online.", "AEON")
+            
+            log("Boot sequence concluída. Chamando io.falar().")
+            io.falar("Estou pronto.")
+            log("Chamada para io.falar() retornou.")
 
         except Exception as e:
-            # ... (código de fallback permanece o mesmo)
-            if not isinstance(e, ImportError):
-                print(f"\n[ALERTA] Falha ao iniciar interface principal: {e}")
-                traceback.print_exc()
+            log(f"!!!!!! ERRO FATAL NA THREAD DE BOOT: {e} !!!!!!")
+            import traceback
+            traceback.print_exc()
 
-            if not use_dashboard:
-                print("[BOOT] Ativando Protocolo de Segurança: Iniciando GUI Clássica (Fallback)...")
-                try:
-                    from core.main_gui_logic import AeonGUI
-                    gui_app = AeonGUI(core_context)
-                    core_context["gui"] = gui_app
-                    # Inicia a thread de módulos também para o fallback
-                    module_loader_thread = threading.Thread(target=module_manager.load_modules, daemon=True)
-                    module_loader_thread.start()
-                    gui_app.mainloop()
-                except Exception as e_fallback:
-                    print(f"[ERRO CRÍTICO] Falha total no sistema de interface: {e_fallback}")
-                    traceback.print_exc()
-
-except Exception as e_top:
-    # Grava o erro fatal na "caixa-preta"
-    with open(LOG_FILE, "w", encoding="utf-8") as f:
-        f.write(f"--- ERRO CRÍTICO NA INICIALIZAÇÃO ---\n")
-        f.write(f"Exceção: {str(e_top)}\n\n")
-        f.write("--- Traceback ---\n")
-        traceback.print_exc(file=f)
-    raise
-
-
-# No final do seu main.py
-if __name__ == "__main__":
-    # ... seu código de boot ...
-    # Quando o app.exec() ou mainloop() terminar:
-    print("[SYSTEM] Desligando motores...")
-    sys.exit(0)
+    log("=== AEON V85 BOOT ===")
+    
+    log("Criando QApplication...")
+    app = QApplication(sys.argv)
+    log("QApplication criada.")
+    
+    log("Criando SphereUI e MainLogic...")
+    esfera = SphereUI()
+    logic = MainLogic(esfera)
+    log("SphereUI e MainLogic criados.")
+    
+    log("Conectando GUI à Lógica...")
+    esfera.set_logic_callback(logic.process_user_input)
+    log("GUI conectada.")
+    
+    log("Mostrando a esfera (esfera.show()).")
+    esfera.show()
+    log("Chamada para esfera.show() retornou.")
+    
+    log("Iniciando thread de boot...")
+    t = threading.Thread(target=boot_sequence, args=(esfera, logic), daemon=True)
+    t.start()
+    log("Thread de boot iniciada.")
+    
+    log("Iniciando loop de eventos da GUI (app.exec_())...")
+    sys.exit(app.exec_())

@@ -1,313 +1,61 @@
-import os
-import sys
-import time
-import customtkinter as ctk
-import psutil
 import threading
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+class MainLogic:
+    def __init__(self, gui):
+        self.gui = gui
+        self.module_manager = None
+        self.io = None
 
-# As importações do Core não são mais necessárias aqui, pois são injetadas
-# mas mantemos para type hinting ou clareza se necessário.
-# from core.module_manager import ModuleManager
-# from core.io_handler import IOHandler
-# etc.
+    def register_modules(self, module_manager, io_handler):
+        """Recebe os módulos depois que eles carregam"""
+        self.module_manager = module_manager
+        self.io = io_handler
 
-# CONFIGURAÇÕES DE TEMA (CYBERPUNK)
-C = {
-    "bg": "#0d1117", "panel_bg": "#161b22", "accent_primary": "#58a6ff", 
-    "accent_secondary": "#238636", "accent_alert": "#da3633", "text_main": "#c9d1d9", 
-    "text_dim": "#8b949e", "code_bg": "#000000", "user_bubble": "#1f6feb", "bot_bubble": "#21262d"
-}
+    def process_user_input(self, text):
+        """Chamado quando você fala ou digita"""
+        if not text: return
 
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("dark-blue")
+        # Mostra o que você disse
+        self.gui.add_message(text, "VOCÊ")
+        self.gui.set_status("PROCESSANDO...")
 
-class AeonGUI(ctk.CTk):
-    def __init__(self, core_context: dict):
-        super().__init__()
-        
-        # --- INJEÇÃO DE DEPENDÊNCIA ---
-        # A GUI agora recebe o core pronto, não o cria.
-        self.core_context = core_context
-        self.config_manager = core_context.get("config_manager")
-        self.io_handler = core_context.get("io_handler")
-        self.brain = core_context.get("brain")
-        self.context_manager = core_context.get("context_manager")
-        self.module_manager = core_context.get("module_manager")
-        self.workspace_path = core_context.get("workspace")
-        self.installer = core_context.get("installer") # Pode ser None
+        # Proteção se os módulos ainda não carregaram
+        if not self.module_manager:
+            self.gui.add_message("Estou acordando, aguarde...", "AEON")
+            return
 
-        # O resto da inicialização da GUI permanece o mesmo
-        self.title("AEON V86 // NEURAL INTERFACE") # Versão atualizada
-        self.geometry("1200x700")
-        self.configure(fg_color=C["bg"])
-        self.minsize(1000, 600)
+        # Processa em outra thread para não travar a animação
+        threading.Thread(target=self._process_background, args=(text,), daemon=True).start()
 
-        self.grid_columnconfigure(0, weight=1, minsize=250) 
-        self.grid_columnconfigure(1, weight=3, minsize=500) 
-        self.grid_columnconfigure(2, weight=1, minsize=300) 
-        self.grid_rowconfigure(0, weight=1)
-
-        self.setup_left_panel()
-        self.setup_center_panel()
-        self.setup_right_panel()
-
-        self.running = True
-        threading.Thread(target=self.loop_vitals, daemon=True).start()
-        
-        self.add_message("Sistema Online. V86 Estabilizada.", "SISTEMA")
-        
-        # A lista de módulos será atualizada à medida que eles forem carregados
-        # pela thread em main.py. Precisamos de um novo método para isso.
-        if self.module_manager:
-            self.module_manager.on_module_loaded = self.on_module_loaded_callback
-
-        # Ativa a escuta automaticamente ao iniciar
-        self.toggle_mic()
-
-    def on_module_loaded_callback(self, module_name):
-        """Callback para atualizar a UI quando um módulo é carregado."""
-        self.after(0, self.add_module_status, module_name, True)
-
-    def setup_left_panel(self):
-        self.frame_left = ctk.CTkFrame(self, fg_color=C["panel_bg"], corner_radius=0)
-        self.frame_left.grid(row=0, column=0, sticky="nsew", padx=(0,1), pady=0)
-        
-        ctk.CTkLabel(self.frame_left, text="SYSTEM STATUS", font=("Consolas", 14, "bold"), text_color=C["text_dim"]).pack(pady=(20, 15), padx=20, anchor="w")
-
-        self.status_frame = ctk.CTkFrame(self.frame_left, fg_color=C["panel_bg"])
-        self.status_frame.pack(fill="x", padx=20, pady=(0, 20))
-        
-        self.led_online = self._create_led(self.status_frame, "NUVEM (GROQ)", C["accent_alert"])
-        self.led_online.pack(side="top", fill="x", pady=2)
-        
-        self.led_local = self._create_led(self.status_frame, "NEURAL (LOCAL)", C["accent_alert"])
-        self.led_local.pack(side="top", fill="x", pady=2)
-
-        ctk.CTkFrame(self.frame_left, height=2, fg_color="#30363d").pack(fill="x", padx=20, pady=10)
-        
-        self.lbl_cpu = ctk.CTkLabel(self.frame_left, text="CPU: 0%", font=("Consolas", 12), text_color=C["text_main"])
-        self.lbl_cpu.pack(padx=20, anchor="w")
-        self.bar_cpu = ctk.CTkProgressBar(self.frame_left, progress_color=C["accent_secondary"])
-        self.bar_cpu.pack(padx=20, pady=(0, 15), fill="x")
-        
-        self.lbl_ram = ctk.CTkLabel(self.frame_left, text="RAM: 0%", font=("Consolas", 12), text_color=C["text_main"])
-        self.lbl_ram.pack(padx=20, anchor="w")
-        self.bar_ram = ctk.CTkProgressBar(self.frame_left, progress_color=C["accent_primary"])
-        self.bar_ram.pack(padx=20, pady=(0, 20), fill="x")
-
-        ctk.CTkFrame(self.frame_left, height=2, fg_color="#30363d").pack(fill="x", padx=20, pady=10)
-        ctk.CTkLabel(self.frame_left, text="ACTIVE MODULES", font=("Consolas", 14, "bold"), text_color=C["text_dim"]).pack(pady=10, padx=20, anchor="w")
-        
-        self.scroll_modules = ctk.CTkScrollableFrame(self.frame_left, fg_color=C["panel_bg"])
-        self.scroll_modules.pack(fill="both", expand=True, padx=10, pady=10)
-
-    def _create_led(self, parent, text, color):
-        frame = ctk.CTkFrame(parent, fg_color=C["panel_bg"])
-        canvas = ctk.CTkCanvas(frame, width=12, height=12, bg=C["panel_bg"], highlightthickness=0)
-        canvas.pack(side="left", padx=(0, 10))
-        led_id = canvas.create_oval(2, 2, 10, 10, fill=color, outline="")
-        label = ctk.CTkLabel(frame, text=text, font=("Consolas", 11, "bold"), text_color=C["text_dim"])
-        label.pack(side="left")
-        frame.canvas = canvas
-        frame.led = led_id
-        return frame
-
-    def add_module_status(self, name, active):
-        row = ctk.CTkFrame(self.scroll_modules, fg_color=C["panel_bg"])
-        row.pack(fill="x", pady=2)
-        color = C["accent_secondary"] if active else C["accent_alert"]
-        status_text = "ONLINE" if active else "OFFLINE"
-        canvas = ctk.CTkCanvas(row, width=10, height=10, bg=C["panel_bg"], highlightthickness=0)
-        canvas.pack(side="left", padx=(5,10))
-        canvas.create_oval(1, 1, 9, 9, fill=color, outline="")
-        ctk.CTkLabel(row, text=name, font=("Consolas", 12), text_color=C["text_main"]).pack(side="left")
-        ctk.CTkLabel(row, text=status_text, font=("Consolas", 10), text_color=C["text_dim"]).pack(side="right", padx=5)
-
-    def setup_center_panel(self):
-        self.frame_center = ctk.CTkFrame(self, fg_color=C["bg"], corner_radius=0)
-        self.frame_center.grid(row=0, column=1, sticky="nsew")
-        self.frame_center.grid_rowconfigure(0, weight=1)
-        self.frame_center.grid_columnconfigure(0, weight=1)
-
-        self.chat_feed = ctk.CTkScrollableFrame(self.frame_center, fg_color=C["bg"])
-        self.chat_feed.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
-
-        self.input_container = ctk.CTkFrame(self.frame_center, fg_color=C["panel_bg"], height=60)
-        self.input_container.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 20))
-        
-        self.entry_msg = ctk.CTkEntry(self.input_container, placeholder_text="Comando...", font=("Consolas", 14), border_width=0, fg_color=C["panel_bg"], text_color=C["text_main"])
-        self.entry_msg.pack(side="left", fill="both", expand=True, padx=15, pady=10)
-        self.entry_msg.bind("<Return>", self.send_message_event)
-
-        self.btn_mic = ctk.CTkButton(self.input_container, text="MIC", width=60, fg_color=C["accent_primary"], font=("Consolas", 12, "bold"), command=self.toggle_mic)
-        self.btn_mic.pack(side="right", padx=10)
-        
-        self.btn_shush = ctk.CTkButton(self.input_container, text="XIU", width=50, fg_color=C["accent_alert"], font=("Consolas", 12, "bold"), command=self.io_handler.calar_boca)
-        self.btn_shush.pack(side="right", padx=(0, 5))
-
-    def _prevent_typing(self, event): return "break"
-
-    def copy_to_clipboard(self, text):
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self.update()
-
-    def add_message(self, text, sender="VOCÊ"):
-        msg_frame = ctk.CTkFrame(self.chat_feed, fg_color=C["bg"])
-        msg_frame.pack(fill="x", pady=5)
-        align, bubble_color, text_color = ("e", C["user_bubble"], "white") if sender == "VOCÊ" else ("w", C["bot_bubble"], C["text_main"])
-
-        ctk.CTkLabel(msg_frame, text=sender, font=("Consolas", 10, "bold"), text_color=C["text_dim"]).pack(anchor=align, padx=5)
-
-        parts = text.split("```")
-        for i, part in enumerate(parts):
-            if not part.strip(): continue
-            is_code = i % 2 != 0
-            bg_color = C["code_bg"] if is_code else bubble_color
-            border_c = "#30363d" if is_code else bg_color 
-
-            parent_widget = msg_frame
-            
-            if is_code:
-                code_container = ctk.CTkFrame(msg_frame, fg_color="transparent")
-                code_container.pack(fill="x", pady=2, padx=5)
-                
-                header = ctk.CTkFrame(code_container, fg_color=bg_color, corner_radius=6, height=25)
-                header.pack(fill="x", pady=(0,0))
-                ctk.CTkButton(header, text="📋 Copiar", width=60, height=20, font=("Consolas", 10), fg_color="#238636", hover_color="#2ea043", command=lambda t=part.strip(): self.copy_to_clipboard(t)).pack(side="right", padx=5, pady=2)
-                
-                parent_widget = code_container
-
-            textbox = ctk.CTkTextbox(parent_widget, 
-                                     font=("Consolas" if is_code else "Roboto", 13 if is_code else 14), 
-                                     fg_color=bg_color, 
-                                     text_color="#3fb950" if is_code else text_color,
-                                     border_width=1 if is_code else 0,
-                                     border_color=border_c,
-                                     corner_radius=12 if not is_code else 6,
-                                     wrap="word" if not is_code else "none")
-            
-            textbox.insert("0.0", part.strip())
-            num_lines = len(part.strip().split('\n'))
-            height = min(num_lines * 22 + 20, 400 if is_code else 600)
-            textbox.configure(height=height)
-            textbox.bind("<KeyPress>", self._prevent_typing)
-            textbox.bind("<KeyRelease>", self._prevent_typing)
-            textbox.pack(anchor=align if not is_code else "center", pady=2 if not is_code else 0, padx=5 if not is_code else 0, ipady=5, fill="x" if is_code else "none")
-            
-        self.after(100, lambda: self.chat_feed._parent_canvas.yview_moveto(1.0))
-
-    def send_message_event(self, event=None):
-        txt = self.entry_msg.get()
-        if txt:
-            self.add_message(txt, "VOCÊ")
-            self.entry_msg.delete(0, "end")
-            threading.Thread(target=self.process_in_background, args=(txt,), daemon=True).start()
-
-    def process_in_background(self, txt):
-        self.lbl_cpu.configure(text="CPU: PROCESSANDO...") 
-        if self.io_handler:
-            threading.Thread(target=lambda: self.io_handler.play_feedback_sound('start'), daemon=True).start()
-
-        def _task():
-            try:
-                response = self.module_manager.route_command(txt)
-                self.after(0, lambda: self.add_message(response, "AEON"))
-                self.after(0, lambda: self.io_handler.falar(response))
-            except Exception as e:
-                self.after(0, lambda: self.add_message(f"Erro Crítico: {e}", "SISTEMA"))
-            finally:
-                 self.after(0, lambda: self.lbl_cpu.configure(text="CPU: OCIOSO"))
-        threading.Thread(target=_task, daemon=True).start()
-
-    def toggle_mic(self):
-        threading.Thread(target=self.process_in_background, args=("escuta",), daemon=True).start()
-        self.btn_mic.configure(fg_color=C["accent_secondary"])
-
-    def setup_right_panel(self):
-        self.frame_right = ctk.CTkFrame(self, fg_color=C["panel_bg"], corner_radius=0)
-        self.frame_right.grid(row=0, column=2, sticky="nsew", padx=(1,0), pady=0)
-        
-        self.tabs = ctk.CTkTabview(self.frame_right, fg_color=C["panel_bg"])
-        self.tabs.pack(fill="both", expand=True, padx=10, pady=10)
-        self.tabs.add("WORKSPACE")
-        self.tabs.add("LOGS")
-
-        self.workspace_frame = self.tabs.tab("WORKSPACE")
-        self.workspace_frame.grid_columnconfigure(0, weight=1)
-        self.workspace_frame.grid_rowconfigure(1, weight=1)
-
-        button_frame = ctk.CTkFrame(self.workspace_frame, fg_color="transparent")
-        button_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-        button_frame.grid_columnconfigure(0, weight=1)
-        button_frame.grid_columnconfigure(1, weight=1)
-
-        refresh_btn = ctk.CTkButton(button_frame, text="Refresh", font=("Consolas", 12), command=self.refresh_workspace_view)
-        refresh_btn.grid(row=0, column=0, sticky="ew", padx=(0, 2))
-        
-        open_folder_btn = ctk.CTkButton(button_frame, text="Abrir Pasta", font=("Consolas", 12), command=self.open_workspace_folder)
-        open_folder_btn.grid(row=0, column=1, sticky="ew", padx=(2, 0))
-
-        self.workspace_tree_frame = ctk.CTkScrollableFrame(self.workspace_frame, fg_color="transparent")
-        self.workspace_tree_frame.grid(row=1, column=0, sticky="nsew")
-
-        self.after(200, self.refresh_workspace_view)
-
-    def open_workspace_folder(self):
+    def _process_background(self, text):
         try:
-            if os.path.exists(self.workspace_path):
-                os.startfile(self.workspace_path)
-            else:
-                print(f"[GUI_ERROR] Workspace não encontrado: {self.workspace_path}")
+            # 1. Tenta achar o comando nos módulos
+            response = self.module_manager.route_command(text)
+
+            # 2. Se for Texto Simples
+            if isinstance(response, str):
+                self.gui.add_message(response, "AEON")
+                if self.io: self.io.falar(response)
+
+            # 3. Se for uma Ferramenta (JSON/Dict)
+            elif isinstance(response, dict):
+                tool = response.get("tool")
+                param = response.get("param")
+                self.gui.add_message(f"Executando: {tool}...", "SISTEMA")
+                
+                # Executa a ação real
+                res_tool = self.module_manager.executar_ferramenta(tool, param)
+                
+                self.gui.add_message(str(res_tool), "AEON")
+                if self.io: self.io.falar(str(res_tool))
+            
+            # 4. Se não for nada (None), manda pro Cérebro genérico (LLM)
+            elif response is None:
+                 self.gui.add_message("Hmm...", "AEON")
+                 # Aqui você poderia chamar o brain.pensar() se quisesse papo furado
+
         except Exception as e:
-            print(f"[GUI_ERROR] Erro ao abrir pasta: {e}")
-
-    def refresh_workspace_view(self):
-        for widget in self.workspace_tree_frame.winfo_children():
-            widget.destroy()
+            self.gui.add_message(f"Erro de processamento: {e}", "ERRO")
+            print(f"ERRO LOGIC: {e}")
         
-        if os.path.exists(self.workspace_path):
-            self._populate_workspace_tree(self.workspace_tree_frame, self.workspace_path, indent=0)
-
-    def _populate_workspace_tree(self, parent, path, indent=0):
-        try:
-            for item in sorted(os.listdir(path)):
-                item_path = os.path.join(path, item)
-                item_frame = ctk.CTkFrame(parent, fg_color="transparent")
-                item_frame.pack(fill="x", anchor="w")
-                icon = "📁" if os.path.isdir(item_path) else "📄"
-                label_text = f"{' ' * indent * 2}{icon} {item}"
-                ctk.CTkLabel(item_frame, text=label_text, font=("Consolas", 12), text_color=C["text_main"]).pack(side="left", padx=5, pady=2)
-                if os.path.isdir(item_path):
-                    self._populate_workspace_tree(parent, item_path, indent + 1)
-        except: pass
-
-    def loop_vitals(self):
-        while self.running:
-            try:
-                cpu = psutil.cpu_percent(interval=1)
-                ram = psutil.virtual_memory().percent
-                self.after(0, self.update_vitals, cpu, ram)
-            except:
-                pass
-            time.sleep(0.5)
-
-    def update_vitals(self, cpu, ram):
-        try:
-            self.bar_cpu.set(cpu / 100)
-            self.lbl_cpu.configure(text=f"CPU: {cpu}%")
-            self.bar_ram.set(ram / 100)
-            self.lbl_ram.configure(text=f"RAM: {ram}%")
-            if self.brain:
-                online = getattr(self.brain, 'online', False)
-                cor_online = C["accent_primary"] if online else C["accent_alert"]
-                self.led_online.canvas.itemconfig(self.led_online.led, fill=cor_online)
-        except: pass
-
-if __name__ == "__main__":
-    # Este modo de execução é para teste. O principal é o main.py
-    # Para testes, precisaríamos de um core_context mock.
-    print("Este arquivo é uma GUI. Execute o main.py para iniciar o Aeon.")
-    pass
+        self.gui.set_status("ONLINE")

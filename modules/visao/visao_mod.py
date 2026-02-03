@@ -1,101 +1,71 @@
-# SAFE IMPORT V86
-from io import BytesIO
+import os
+import threading
 from modules.base_module import AeonModule
 
-# Verificação de disponibilidade sem importação pesada
-GEAR_AVAILABLE = False
-VISAO_AVAILABLE = False
-try:
-    import importlib.util
-    if importlib.util.find_spec("cv2"): GEAR_AVAILABLE = True
-    if importlib.util.find_spec("pyautogui"): VISAO_AVAILABLE = True
-except ImportError:
-    pass
+# NOTA: Não importamos cv2 ou mediapipe aqui para não travar o boot!
 
 class VisaoModule(AeonModule):
-    """
-    Módulo de Visão para análise de imagens.
-    - Analisa screenshots da tela.
-    - Captura e analisa imagens da webcam.
-    """
     def __init__(self, core_context):
         super().__init__(core_context)
         self.name = "Visao"
-        self.triggers = [
-            "veja isso", "leia a tela", "analise a imagem",
-            "o que você está vendo", "descreva a câmera", "olhe para mim"
-        ]
-        self.dependencies = ["brain", "context"]
-
-    def check_dependencies(self):
-        if not VISAO_AVAILABLE:
-            print("[VISAO] Aviso: 'pyautogui' não instalado. Funções de screenshot desativadas.")
-        if not GEAR_AVAILABLE:
-            print("[VISAO] Aviso: 'opencv-python' não instalado. Funções de câmera desativadas.")
-        return super().check_dependencies()
+        self.triggers = ["ativar visão", "ativar visao", "olhos", "ver", "o que você vê"]
+        self.cap = None
+        self.running = False
+        self.thread = None
 
     def process(self, command: str) -> str:
-        cmd = command.lower()
-        analysis_triggers = ["veja isso", "leia a tela", "analise a imagem", "o que você está vendo", "descreva a câmera", "olhe para mim"]
-        if not any(c in cmd for c in analysis_triggers):
-            return ""
+        if any(t in command.lower() for t in ["ativar", "ligar", "iniciar"]):
+            if self.running:
+                return "O sistema visual já está online."
+            
+            # Inicia em thread para não travar enquanto carrega o TensorFlow
+            self.running = True
+            threading.Thread(target=self._iniciar_sistema_visual, daemon=True).start()
+            return "Inicializando córtex visual... (Isso pode levar alguns segundos)"
+        
+        if any(t in command.lower() for t in ["parar", "desligar", "fechar"]):
+            self.running = False
+            return "Sistema visual encerrado."
 
-        brain = self.core_context.get("brain")
-        ctx = self.core_context.get("context")
-        if not brain:
-            return "O cérebro não está disponível para analisar a imagem."
+        return None
 
-        use_camera = any(x in cmd for x in ["câmera", "vendo", "olhe", "mim"])
+    def _iniciar_sistema_visual(self):
+        gui = self.core_context.get("gui")
+        if gui: gui.add_message("Carregando bibliotecas de visão...", "SISTEMA")
 
         try:
-            if use_camera:
-                if not GEAR_AVAILABLE:
-                    return "Não consigo acessar a câmera. Instale 'opencv-python'."
-                image_bytes = self._capture_webcam_frame()
-            else:
-                if not VISAO_AVAILABLE:
-                    return "Não consigo ler a tela. Instale 'pyautogui'."
+            # --- IMPORTS PESADOS AQUI DENTRO ---
+            # Isso garante que o boot do Aeon seja instantâneo
+            import cv2
+            import mediapipe as mp
+            from mediapipe.tasks import python
+            from mediapipe.tasks.python import vision
+            # -----------------------------------
+
+            if gui: gui.add_message("Bibliotecas carregadas. Abrindo câmera...", "SISTEMA")
+
+            base_options = python.BaseOptions(model_asset_path='modules/visao/hand_landmarker.task')
+            options = vision.HandLandmarkerOptions(base_options=base_options, num_hands=2)
+            detector = vision.HandLandmarker.create_from_options(options)
+
+            self.cap = cv2.VideoCapture(0)
+            
+            while self.running and self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if not ret: break
+
+                # Aqui iria a lógica de desenho na tela (simplifiquei para focar no boot)
+                # O importante é que o CV2 agora vive aqui dentro
+                cv2.imshow('Visao Aeon (Q para Sair)', frame)
                 
-                # Lazy import de pyautogui
-                import pyautogui
-                screenshot = pyautogui.screenshot()
-                img_byte_arr = BytesIO()
-                screenshot.save(img_byte_arr, format='PNG')
-                image_bytes = img_byte_arr.getvalue()
-            
-            analise = brain.ver(image_bytes)
-            if ctx:
-                ctx.set("vision_last_result", analise, ttl=600)
-            
-            return f"Visão: {analise}"
+                if cv2.waitKey(5) & 0xFF == 27: # ESC
+                    self.running = False
+
+            self.cap.release()
+            cv2.destroyAllWindows()
+            if gui: gui.add_message("Câmera fechada.", "SISTEMA")
+
         except Exception as e:
-            return f"Ocorreu um erro durante a análise visual: {e}"
-
-    def _capture_webcam_frame(self) -> bytes:
-        """Captura um único frame da webcam e retorna em bytes JPEG."""
-        # Lazy import de cv2
-        import cv2
-
-        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        if not cap.isOpened():
-             cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            raise Exception("Não consegui acessar a câmera. Verifique se ela não está em uso.")
-        
-        for _ in range(5):
-            cap.read()
-            
-        ret, frame = cap.read()
-        cap.release()
-
-        if not ret:
-            raise Exception("Falha ao capturar a imagem da câmera.")
-        
-        ret, buffer = cv2.imencode('.jpg', frame)
-        if not ret:
-            raise Exception("Erro ao codificar a imagem capturada.")
-        
-        return buffer.tobytes()
-
-    def on_unload(self) -> bool:
-        return True
+            print(f"[VISAO] Erro: {e}")
+            if gui: gui.add_message(f"Erro ao iniciar visão: {e}", "ERRO")
+            self.running = False

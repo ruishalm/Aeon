@@ -1,254 +1,256 @@
-import os
+import sys
 import math
-import random
-import ctypes
-import threading
-from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QLineEdit, QFrame, QLabel, QMenu
-from PyQt6.QtCore import Qt, QTimer, QPoint, QPointF, pyqtSignal, QRectF, QObject
-from PyQt6.QtGui import QPainter, QColor, QRadialGradient, QBrush, QPen, QPainterPath
-from pynput import keyboard as pynput_keyboard
+from PyQt5.QtWidgets import (QWidget, QLabel, QVBoxLayout, QApplication, 
+                             QLineEdit, QDialog, QGraphicsDropShadowEffect)
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPoint, QRectF
+from PyQt5.QtGui import (QPainter, QColor, QRadialGradient, QPen, 
+                         QFont, QBrush, QLinearGradient)
 
-# As importações do Core agora são injetadas, não criadas aqui.
-
-# --- CONFIGURAÇÕES DE CORES ---
-C_ACTIVE = QColor(255, 0, 0)
-C_PROCESS = QColor(0, 191, 255)
-C_LOADING = QColor(255, 165, 0)
-C_BG_INPUT = "#000000"
-C_BORDER = "#8B0000"
-C_TEXT = "#FFFFFF"
-C_PASTEL = QColor(200, 150, 150, 40)
-C_AURA_ONLINE = QColor(0, 255, 0, 255)
-C_AURA_OFFLINE = QColor(255, 0, 0, 255)
-
-class SpeechBubble(QLabel):
-    def __init__(self, parent=None):
+class InputDialog(QDialog):
+    """
+    Caixa de Texto Flutuante (Estilo Cyberpunk).
+    Ativada por Ctrl + Shift + A.
+    """
+    def __init__(self, parent=None, callback=None):
         super().__init__(parent)
-        self.setWordWrap(True)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setStyleSheet(f"color: {C_TEXT}; font-family: 'Consolas'; font-size: 11px; background-color: transparent; border: 0px; padding: 10px;")
-        self._text = ""
-    def setText(self, text): self._text = text; super().setText(text); self.update()
-    def paintEvent(self, event):
-        if not self._text: return
-        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = self.rect().adjusted(5, 5, -5, -5); rect.setHeight(rect.height() - 10)
-        path = QPainterPath(); path.addRoundedRect(float(rect.x()), float(rect.y()), float(rect.width()), float(rect.height()), 8.0, 8.0)
-        center_x = rect.center().x(); tail = QPainterPath(); tail.moveTo(center_x - 10, rect.bottom()); tail.lineTo(center_x, rect.bottom() + 10); tail.lineTo(center_x + 10, rect.bottom()); tail.lineTo(center_x - 10, rect.bottom()); path.addPath(tail)
-        painter.setBrush(QColor(0, 0, 0, 190)); painter.setPen(QPen(QColor(C_BORDER), 1.5)); painter.drawPath(path)
-        super().paintEvent(event)
+        self.callback = callback
+        
+        # Remove bordas e deixa transparente
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.resize(500, 80)
+        
+        layout = QVBoxLayout()
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText("Digite um comando para o Aeon...")
+        
+        # Estilo CSS da caixa
+        self.input_field.setStyleSheet("""
+            QLineEdit { 
+                background-color: rgba(10, 10, 20, 230); 
+                color: #00FFFF; 
+                border: 2px solid #00FFFF; 
+                border-radius: 10px; 
+                padding: 10px; 
+                font-family: 'Segoe UI';
+                font-size: 16px;
+                selection-background-color: #00FFFF;
+                selection-color: black;
+            }
+        """)
+        
+        # Efeito de brilho (Glow)
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 255, 255))
+        shadow.setOffset(0, 0)
+        self.input_field.setGraphicsEffect(shadow)
 
-class AeonSphere(QMainWindow):
-    activate_signal = pyqtSignal()
-    timer_signal = pyqtSignal(int, object, tuple)
-    modules_loaded_signal = pyqtSignal()
+        self.input_field.returnPressed.connect(self.send_text)
+        layout.addWidget(self.input_field)
+        self.setLayout(layout)
+        
+        # Foca no texto assim que abre
+        self.input_field.setFocus()
 
-    def __init__(self, core_context: dict):
+    def send_text(self):
+        text = self.input_field.text()
+        if text and self.callback:
+            self.callback(text)
+        self.close()
+
+class SphereUI(QWidget):
+    # Sinal para atualizar a GUI de forma segura (Thread-Safe)
+    update_signal = pyqtSignal(str, str)
+    status_signal = pyqtSignal(str)
+
+    def __init__(self):
         super().__init__()
-        print("[SPHERE] Iniciando Interface Neural...")
-
-        # --- INJEÇÃO DE DEPENDÊNCIA ---
-        self.core_context = core_context
-        self.config_manager = core_context.get("config_manager")
-        self.io_handler = core_context.get("io_handler")
-        self.brain = core_context.get("brain")
-        self.context_manager = core_context.get("context_manager")
-        self.module_manager = core_context.get("module_manager")
+        self.setWindowTitle("AEON V85")
         
-        # Registra um callback no ModuleManager
-        if self.module_manager:
-            self.module_manager.on_all_modules_loaded = self.modules_loaded_signal.emit
+        # Configuração da Janela
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.resize(450, 450)
+        self.center_screen()
 
-        self.hotkey_listener = None
-
-        # --- CONFIGURAÇÃO DA JANELA ---
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        screen_geo = QApplication.primaryScreen().geometry()
-        self.setGeometry(screen_geo.width() - 280, 50, 250, 250)
+        # --- Variáveis de Estado ---
+        self.logic_callback = None
+        self.is_speaking = False
+        self.is_listening = False
+        self.pulse_phase = 0.0
+        self.rotation_angle = 0.0
+        self.status_text = "BOOT"
         
-        self.state = "LOADING"
-        self.base_radius = 50; self.current_radius = 50; self.target_radius = 50; self.pulse_phase = 0; self.orbit_angles = [random.uniform(0, 2 * math.pi) for _ in range(3)]; self.orbit_speeds = [random.uniform(0.002, 0.004) for _ in range(3)]; self.orbit_factors = [random.uniform(1.05, 1.15) for _ in range(3)]; self.is_interactive = False; self.drag_pos = None; self.hidden_mode = False; self.ring_angle = 0
-        self.visual_mode = "ACTIVE"; self.sleep_timer = QTimer(); self.sleep_timer.timeout.connect(self.go_to_sleep)
+        # --- Layout de Texto ---
+        self.layout = QVBoxLayout()
+        self.layout.setAlignment(Qt.AlignCenter)
         
-        self.central_widget = QWidget(); self.setCentralWidget(self.central_widget)
-        self.response_label = SpeechBubble(self.central_widget); self.response_label.setGeometry(10, -10, 230, 80); self.response_label.hide()
-        self.input_frame = QFrame(self.central_widget); self.input_frame.setGeometry(25, 160, 200, 45); self.input_frame.setStyleSheet(f"QFrame {{ background-color: {C_BG_INPUT}; border: 2px solid {C_BORDER}; border-radius: 10px; }}")
+        # 1. Status (Topo da Esfera)
+        self.lbl_status = QLabel(self.status_text)
+        self.lbl_status.setAlignment(Qt.AlignCenter)
+        self.lbl_status.setStyleSheet("color: rgba(255,255,255,180); font-weight: bold; font-family: Segoe UI; letter-spacing: 2px;")
+        self.layout.addWidget(self.lbl_status)
         
-        self.input_box = QLineEdit(self.input_frame); self.input_box.setGeometry(10, 10, 180, 30); self.input_box.setPlaceholderText("Carregando..."); self.input_box.setStyleSheet(f"background: transparent; border: none; color: {C_TEXT}; font-family: Consolas;"); self.input_box.returnPressed.connect(self.on_submit); self.input_box.setEnabled(False)
+        # Espaçador
+        self.layout.addStretch()
         
-        # --- TIMERS E HOTKEYS ---
-        self.anim_timer = QTimer(); self.anim_timer.timeout.connect(self.animate); self.anim_timer.start(30)
-        self.activate_signal.connect(lambda: self.set_click_through(False))
-        self.timer_signal.connect(self._handle_timer_signal)
-        threading.Thread(target=self._setup_global_hotkey, daemon=True).start()
+        # 2. Legenda (Embaixo da Esfera)
+        self.lbl_caption = QLabel("")
+        self.lbl_caption.setAlignment(Qt.AlignCenter)
+        self.lbl_caption.setStyleSheet("""
+            color: #00FFFF; 
+            font-size: 11pt; 
+            background-color: rgba(0,0,0,150); 
+            border-radius: 8px; 
+            padding: 5px 10px;
+        """)
+        self.lbl_caption.setWordWrap(True)
+        self.lbl_caption.setMaximumWidth(380)
+        self.lbl_caption.hide() # Começa escondido
+        self.layout.addWidget(self.lbl_caption)
         
-        # Conecta o sinal de módulos carregados ao slot
-        self.modules_loaded_signal.connect(self.on_modules_loaded)
+        self.setLayout(self.layout)
+
+        # --- Timer de Animação (60 FPS) ---
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.animate)
+        self.timer.start(16)
         
-        # Feedback inicial
-        self.io_handler.falar("Iniciando Aeon.")
-        print("[SPHERE] Sequência de inicialização da GUI concluída. Aguardando módulos...")
+        # Conecta sinais
+        self.update_signal.connect(self._update_gui_thread)
+        self.status_signal.connect(self._update_status_thread)
 
-    def on_modules_loaded(self):
-        """Slot executado quando todos os módulos terminam de carregar."""
-        print("[SPHERE] Módulos carregados. Sistema pronto.")
-        self.state = "IDLE"
-        self.input_box.setEnabled(True)
-        self.input_box.setPlaceholderText("Comando...")
+    def center_screen(self):
+        screen = QApplication.primaryScreen().geometry()
+        x = (screen.width() - self.width()) // 2
+        y = (screen.height() - self.height()) // 2
+        self.move(x, y)
 
-        try:
-            self.io_handler.falar("Sistema online.")
-        except Exception as e:
-            print(f"[SPHERE] Aviso: Falha ao falar 'Sistema online': {e}")
+    def set_logic_callback(self, callback):
+        self.logic_callback = callback
 
-        self.show_response("Sistema pronto.")
-        self.after(2000, self.response_label.hide)
+    # --- INPUT DO TECLADO (FARMING) ---
+    def keyPressEvent(self, event):
+        # Atalho: Ctrl + Shift + A
+        if event.modifiers() == (Qt.ControlModifier | Qt.ShiftModifier) and event.key() == Qt.Key_A:
+            self.open_input_box()
+        # Atalho: ESC para fechar
+        elif event.key() == Qt.Key_Escape:
+            self.close()
+
+    def open_input_box(self):
+        dialog = InputDialog(self, self.logic_callback)
+        # Posiciona a caixa um pouco abaixo da esfera
+        dialog.move(self.x() + 25, self.y() + 350)
+        dialog.exec_()
+
+    # --- Métodos de Atualização ---
+    def set_status(self, text):
+        self.status_signal.emit(text)
+
+    def _update_status_thread(self, text):
+        self.status_text = text.upper()
+        self.lbl_status.setText(self.status_text)
         
-        # Ativa os módulos de background
-        print("[SPHERE] Ativando módulos de inicialização (Audição)...")
-        self.after(500, lambda: threading.Thread(target=self.process_command, args=("ativar escuta", True), daemon=True).start())
+        # Lógica visual baseada no texto
+        if "OUVINDO" in self.status_text or "ESCUTA" in self.status_text:
+            self.is_listening = True
+        else:
+            self.is_listening = False
+
+    def add_message(self, text, sender="SISTEMA"):
+        self.update_signal.emit(text, sender)
+
+    def _update_gui_thread(self, text, sender):
+        prefix = f"{sender}: " if sender != "SISTEMA" else ""
+        self.lbl_caption.setText(f"{prefix}{text}")
+        self.lbl_caption.show()
+        self.lbl_caption.adjustSize()
         
-        self.after(1000, lambda: self.sleep_timer.start(120000))
-
-    def set_click_through(self, enable: bool):
-        try:
-            hwnd = int(self.winId())
-            GWL_EXSTYLE = -20; WS_EX_LAYERED = 0x80000; WS_EX_TRANSPARENT = 0x20
-            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            if enable: style = style | WS_EX_LAYERED | WS_EX_TRANSPARENT; self.input_frame.hide(); self.is_interactive = False
-            else: style = style & ~WS_EX_TRANSPARENT; self.input_frame.show(); self.input_box.setFocus(); self.is_interactive = True; self.hidden_mode = False; self.wake_up()
-            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
-        except Exception as e: print(f"[ERRO ctypes] {e}")
-
-    def _setup_global_hotkey(self):
-        try:
-            self.hotkey_listener = pynput_keyboard.GlobalHotKeys({'<ctrl>+<shift>+a': self.activate_signal.emit})
-            self.hotkey_listener.start()
-        except Exception as e: print(f"[ERRO pynput] {e}")
-
-    def paintEvent(self, event):
-        if self.hidden_mode and not self.is_interactive: return
-        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        if self.state == "LOADING": color = C_LOADING
-        else: color = C_PASTEL if self.visual_mode == "STANDBY" else (C_PROCESS if self.state == "PROCESSING" else C_ACTIVE)
-        center = QPointF(self.width() / 2, 110.0)
-        is_online = self.brain.online if hasattr(self, 'brain') and self.brain else False
-        base_aura_color = C_AURA_ONLINE if is_online else C_AURA_OFFLINE
-        painter.setPen(Qt.PenStyle.NoPen)
-        if self.visual_mode == "ACTIVE":
-            if self.state != "LOADING":
-                for i in range(3):
-                    angle = self.orbit_angles[i]; orbit_radius = self.current_radius * self.orbit_factors[i]; bx = center.x() + orbit_radius * math.cos(angle); by = center.y() + orbit_radius * math.sin(angle); ball_center = QPointF(bx, by); ball_grad = QRadialGradient(ball_center, 5); ball_grad.setColorAt(0, QColor(base_aura_color.red(), base_aura_color.green(), base_aura_color.blue(), 100)); ball_grad.setColorAt(1, Qt.GlobalColor.transparent); painter.setBrush(QBrush(ball_grad)); painter.drawEllipse(ball_center, 5, 5)
-            self._draw_rings(painter, center, color)
-        self._draw_undulating_sphere(painter, center, color, self.current_radius, 1.0)
-        self._draw_undulating_sphere(painter, center, color, self.current_radius * 0.8, 0.6)
-
-    def _draw_undulating_sphere(self, painter, center, color, radius, opacity_mult):
-        path = QPainterPath(); num_points = 80
-        is_active = self.io_handler.is_busy() or self.state == "PROCESSING" or self.state == "LOADING"
-        amp_factor = 3.5 if is_active else (1.0 if self.visual_mode == "ACTIVE" else 0.0)
-        for i in range(num_points + 1):
-            angle = (i * 2 * math.pi) / num_points; wave1 = math.sin(angle * 2 + self.pulse_phase * 1.2) * (radius * 0.03 * amp_factor); wave2 = math.sin(angle * 5 - self.pulse_phase * 1.5) * (radius * 0.02 * amp_factor); r = radius + wave1 + wave2; x = center.x() + r * math.cos(angle); y = center.y() + r * math.sin(angle)
-            if i == 0: path.moveTo(x, y)
-            else: path.lineTo(x, y)
-        focal_point = center - QPointF(radius * 0.2, radius * 0.2); grad = QRadialGradient(center, radius, focal_point); alpha_center = 40 if self.is_interactive else 15; alpha_edge = 128 if self.is_interactive else 80
-        grad.setColorAt(0, QColor(color.red(), color.green(), color.blue(), int(alpha_center * opacity_mult))); grad.setColorAt(0.8, QColor(color.red(), color.green(), color.blue(), int(alpha_edge * opacity_mult))); grad.setColorAt(1, QColor(color.red(), color.green(), color.blue(), 0))
-        painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QBrush(grad)); painter.drawPath(path)
-
-    def _draw_rings(self, painter, center, color):
-        painter.setBrush(Qt.BrushStyle.NoBrush); ring_color = QColor(color.red(), color.green(), color.blue(), 40); pen = QPen(ring_color); pen.setWidth(1); painter.setPen(pen); painter.save(); painter.translate(center); painter.rotate(self.ring_angle)
-        for i in range(2): painter.rotate(45 * i); r_w = self.current_radius * 1.4; r_h = self.current_radius * 0.5; painter.drawEllipse(QPointF(0, 0), r_w, r_h)
-        painter.restore()
+        if sender == "AEON":
+            self.is_speaking = True
+            # Para de "falar" visualmente após um tempo estimado (baseado no tamanho do texto)
+            tempo_leitura = max(2000, len(text) * 80)
+            QTimer.singleShot(tempo_leitura, lambda: setattr(self, 'is_speaking', False))
 
     def animate(self):
-        is_active = (self.io_handler.is_busy() or self.state == "PROCESSING" or self.state == "LOADING") and self.visual_mode == "ACTIVE"
-        phase_inc = 0.4 if self.state == "LOADING" else (0.25 if is_active else (0.1 if self.visual_mode == "ACTIVE" else 0.05))
-        self.pulse_phase += phase_inc; self.ring_angle += 0.5
-        if self.state == "LOADING": self.target_radius = self.base_radius + math.sin(self.pulse_phase * 2) * 5
-        elif is_active:
-            if self.io_handler.is_busy(): self.state = "SPEAKING"; self.target_radius = self.base_radius + random.randint(-4, 8)
-        else: pulse_amp = 2 if self.visual_mode == "ACTIVE" else 4; self.target_radius = self.base_radius + math.sin(self.pulse_phase) * pulse_amp
-        for i in range(3): self.orbit_angles[i] += self.orbit_speeds[i]
-        diff = self.target_radius - self.current_radius; self.current_radius += diff * 0.2; self.update() 
+        self.pulse_phase += 0.05
+        self.rotation_angle += 1.0
+        if self.rotation_angle >= 360: self.rotation_angle = 0
+        self.update() # Redesenha
 
-    def on_submit(self):
-        if not self.input_box.isEnabled(): return
-        txt = self.input_box.text()
-        if not txt: return
-        if txt.lower() == "sair": self.quit_app(); return
-        self.input_box.clear(); self.state = "PROCESSING"; self.update(); self.response_label.hide()
-        threading.Thread(target=self.process_command, args=(txt, False), daemon=True).start()
-
-    def wake_up(self): self.visual_mode = "ACTIVE"; self.sleep_timer.stop(); self.update()
-    def go_to_sleep(self):
-        if self.visual_mode == "STANDBY": return
-        self.visual_mode = "STANDBY"; self.state = "IDLE"
-        self.update()
-
-    def quit_app(self):
-        print("[GUI] Encerrando Aeon...")
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
         
-        # 1. Avisa os módulos para desligarem
-        try:
-            audicao_mod = self.module_manager.get_module("audicao")
-            if audicao_mod and hasattr(audicao_mod, 'stop'):
-                print("[GUI] Desligando módulo de audição...")
-                audicao_mod.stop()
-        except Exception as e:
-            print(f"[GUI] Erro ao parar módulo de audição: {e}")
-            
-        # 2. Para o listener de hotkey de forma segura
-        if self.hotkey_listener and self.hotkey_listener.is_alive():
-            print("[GUI] Parando listener de hotkey...")
-            self.hotkey_listener.stop()
-            # Não é ideal chamar join() na thread principal da GUI,
-            # mas o stop() do pynput geralmente é rápido.
-            # Se isso causar bloqueios, uma abordagem de sinal seria melhor.
-
-        # 3. Dá um feedback final sonoro
-        self.io_handler.falar("Encerrando.")
+        center = QPoint(self.width() // 2, self.height() // 2)
+        base_radius = 90
         
-        # 4. Encerra a aplicação Qt
-        # O 'after' aqui agenda o quit para ocorrer após o processamento dos eventos atuais.
-        self.after(200, QApplication.instance().quit)
+        # --- Definição de Cores por Estado ---
+        if self.is_speaking:
+            # Estado: FALANDO (Ciano Pulsante Rápido)
+            pulse = math.sin(self.pulse_phase * 4) * 8
+            main_color = QColor(0, 255, 255, 200)
+            glow_color = QColor(0, 200, 255, 100)
+            status_dot = Qt.cyan
+        elif self.is_listening:
+            # Estado: OUVINDO (Verde/Amarelo Pulsante Médio)
+            pulse = math.sin(self.pulse_phase * 2) * 5
+            main_color = QColor(0, 255, 100, 200)
+            glow_color = QColor(50, 255, 50, 100)
+            status_dot = Qt.green
+        else:
+            # Estado: IDLE (Vermelho Profundo Lento)
+            pulse = math.sin(self.pulse_phase) * 3
+            main_color = QColor(185, 28, 28, 180) # Vermelho Sangue
+            glow_color = QColor(185, 28, 28, 70)  # Brilho Vermelho
+            status_dot = Qt.red # Offline/Idle
 
-    def process_command(self, txt, silent=False):
-        try:
-            cmd = txt.lower().strip()
-            if self.visual_mode == "STANDBY" and not silent:
-                if any(w in cmd for w in ["acordar", "aeon", "ativar", "oi", "olá", "acorde", "escuta"]): self.wake_up()
-                else: return
-            if not silent: self.after(0, self.wake_up); self.after(0, self.sleep_timer.start, 120000) 
-            if cmd in ["ficar invisível", "ocultar"]: self.hidden_mode = True; self.set_click_through(True); self.io_handler.falar("Ok."); return
-            if cmd in ["ficar visível", "mostrar"]: self.hidden_mode = False; self.set_click_through(False); self.io_handler.falar("Ok."); self.update(); return
-            if not silent: self.state = "PROCESSING"
-            response = self.module_manager.route_command(txt)
-            self.after(0, lambda: setattr(self, 'state', 'IDLE'))
-            if not silent: self.after(0, self.show_response, response); self.io_handler.falar(response)
-        except Exception as e:
-            # Mesmo em modo silencioso, um erro deve ser reportado.
-            error_message = f"Erro em segundo plano: {e}"
-            print(f"[SPHERE][ERRO] {error_message}")
-            self.after(0, self.show_response, error_message)
-            # Garante que o estado de processamento seja resetado.
-            self.after(0, lambda: setattr(self, 'state', 'IDLE'))
+        radius = base_radius + pulse
 
-    def show_response(self, text):
-        display_text = text[:300] + "..." if len(text) > 300 else text; self.response_label.setText(display_text); self.response_label.show()
-        display_time = max(4000, len(display_text) * 50); QTimer.singleShot(display_time, self.response_label.hide)
+        # 1. Glow Externo (Aura)
+        painter.setBrush(Qt.NoBrush)
+        pen_glow = QPen(glow_color)
+        pen_glow.setWidth(15)
+        painter.setPen(pen_glow)
+        painter.drawEllipse(center, int(radius + 5), int(radius + 5))
 
-    def add_message(self, text, sender="SISTEMA"): self.after(0, self.show_response, f"{sender}: {text}")
-    def _handle_timer_signal(self, ms, func, args): QTimer.singleShot(ms, lambda: func(*args))
-    def after(self, ms, func, *args): self.timer_signal.emit(ms, func, args)
-    def mousePressEvent(self, event):
-        if self.is_interactive and event.button() == Qt.MouseButton.LeftButton: self.drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft(); event.accept()
+        # 2. Esfera Principal (Gradiente)
+        gradient = QRadialGradient(center, radius)
+        gradient.setColorAt(0, main_color)
+        gradient.setColorAt(0.7, main_color.darker(150))
+        gradient.setColorAt(1, QColor(0, 0, 0, 0)) # Transparente na borda
+        
+        painter.setBrush(gradient)
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(center, int(radius), int(radius))
+        
+        # 3. Anéis Tecnológicos (Rotação)
+        painter.save()
+        painter.translate(center)
+        painter.rotate(self.rotation_angle)
+        
+        arc_pen = QPen(QColor(255, 255, 255, 100))
+        arc_pen.setWidth(2)
+        painter.setPen(arc_pen)
+        painter.setBrush(Qt.NoBrush)
+        
+        # Desenha arcos giratórios
+        r_arc = radius + 10
+        painter.drawArc(QRectF(-r_arc, -r_arc, r_arc*2, r_arc*2), 0, 60 * 16)
+        painter.drawArc(QRectF(-r_arc, -r_arc, r_arc*2, r_arc*2), 180 * 16, 60 * 16)
+        
+        painter.restore()
+
+        # 4. Marcador Visual (Online/Offline) - Pequeno ponto no canto
+        painter.setBrush(status_dot)
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(self.width() - 40, 40, 8, 8)
+
+    # Arrastar janela
+    def mousePressEvent(self, event): self.oldPos = event.globalPos()
     def mouseMoveEvent(self, event):
-        if self.is_interactive and self.drag_pos and event.buttons() == Qt.MouseButton.LeftButton: self.move(event.globalPosition().toPoint() - self.drag_pos); event.accept()
-    def mouseReleaseEvent(self, event):
-        if self.is_interactive and self.drag_pos and event.button() == Qt.MouseButton.LeftButton: self.drag_pos = None; event.accept(); self.after(100, self.set_click_through, True)
-    def contextMenuEvent(self, event):
-        menu = QMenu(self); menu.setStyleSheet(f"background-color: {C_BG_INPUT}; color: {C_TEXT}; border: 1px solid {C_BORDER};"); action_visivel = menu.addAction("Alternar Visibilidade"); action_visivel.triggered.connect(lambda: self.set_click_through(not self.is_interactive)); action_sair = menu.addAction("Encerrar Aeon"); action_sair.triggered.connect(self.quit_app); menu.exec(event.globalPos())
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape: self.set_click_through(True)
-    def closeEvent(self, event): self.quit_app(); event.accept()
+        delta = QPoint(event.globalPos() - self.oldPos)
+        self.move(self.x() + delta.x(), self.y() + delta.y())
+        self.oldPos = event.globalPos()

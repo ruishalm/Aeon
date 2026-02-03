@@ -1,105 +1,80 @@
-import ollama
-from groq import Groq
-import base64
-from PIL import Image
-from io import BytesIO
-import datetime
 import os
 import json
-import re
-
-def log_display(msg):
-    print(f"[BRAIN] {msg}")
-
-def _extract_and_parse_json(text: str):
-    if "tool" not in text:
-        return text
-    try:
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
-            json_str = match.group(0)
-            return json.loads(json_str)
-        return text
-    except json.JSONDecodeError:
-        log_display("Falha ao analisar JSON da IA, tratando como texto.")
-        return text
+import datetime
+import ollama
+from groq import Groq
 
 class AeonBrain:
     def __init__(self, config, installer=None):
         self.config = config.system_data if hasattr(config, "get_system_data") else (config or {})
-        self.config_manager = config if hasattr(config, "get_system_data") else None
-        
         self.client = None
         self.online = False
-        self.local_ready = False
         
+        # Só prepara a chave, não conecta ainda
         self.groq_api_key = os.getenv("GROQ_KEY") or self.config.get("GROQ_KEY")
         
-        # A verificação do Ollama é adiada para não travar o boot
-        self.local_ready = False 
+        # Não verificamos Ollama aqui para não atrasar o boot
+        self.local_ready = True 
 
-    def _conectar_sob_demanda(self):
-        """Só conecta quando realmente precisar pensar."""
-        if self.client and self.online: return True
+    def _conectar(self):
+        """Conecta apenas quando necessário"""
+        if self.client: return
         
-        print("[BRAIN] Estabelecendo conexão neural (Lazy Connect)...")
-        if not self.groq_api_key: return False
-        
-        try:
-            self.client = Groq(api_key=self.groq_api_key)
-            self.online = True
-            print("[BRAIN] Conectado à Nuvem (Groq).")
-            return True
-        except Exception as e:
-            print(f"[BRAIN] Falha de conexão: {e}")
-            self.online = False
-            return False
+        print("[BRAIN] Conectando neurônios...")
+        if self.groq_api_key:
+            try:
+                self.client = Groq(api_key=self.groq_api_key)
+                self.online = True
+                print("[BRAIN] Conectado à Groq.")
+            except Exception as e:
+                print(f"[BRAIN] Falha na nuvem: {e}")
+                self.online = False
 
-    def pensar(self, prompt: str, historico_txt: str = "", **kwargs) -> str:
-        self._conectar_sob_demanda()
+    def pensar(self, prompt: str, historico_txt: str = "", **kwargs):
+        self._conectar() # Conecta agora!
         
-        system_prompt = f"""Você é o AEON.
+        # Prompt que define a personalidade
+        system_prompt = f"""Você é AEON.
         Data: {datetime.datetime.now().strftime("%d/%m/%Y")}.
+        Responda de forma direta e cínica.
         
-        MODO DE RESPOSTA:
-        1. CONVERSA: Responda apenas com texto se for papo furado.
-        2. AÇÃO: Se o usuário pedir para usar uma ferramenta, responda EXATAMENTE um JSON:
-           {{"tool": "Modulo.funcao", "param": "valor"}}
+        REGRAS:
+        1. Se for conversa: Responda texto puro.
+        2. Se for comando (abrir, pesquisar, lembrar): Responda JSON: {{"tool": "...", "param": "..."}}
         """
 
-        if self.client and self.online:
+        # Tenta Nuvem (Groq)
+        if self.online and self.client:
             try:
-                comp = self.client.chat.completions.create(
+                chat = self.client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.6
+                    temperature=0.7
                 )
-                resp = comp.choices[0].message.content.strip()
-                return self._processar_resposta(resp)
-            except:
-                self.online = False
+                return self._parse_response(chat.choices[0].message.content)
+            except Exception as e:
+                print(f"[BRAIN] Erro nuvem: {e}. Tentando local...")
 
+        # Tenta Local (Ollama)
         try:
             r = ollama.chat(model="qwen2.5-coder:7b", messages=[{"role": "user", "content": prompt}])
-            return self._processar_resposta(r['message']['content'])
+            return self._parse_response(r['message']['content'])
         except:
-            return "Estou sem cérebro (Conexão falhou e Ollama desligado)."
+            return "Estou sem conexão e meus sistemas locais não respondem."
 
-    def _processar_resposta(self, texto):
-        if "{" in texto and "tool" in texto:
+    def _parse_response(self, text):
+        # Detecta JSON no meio do texto
+        if "{" in text and "tool" in text:
             try:
-                clean = texto.replace("```json", "").replace("```", "").strip()
-                start = clean.find("{")
-                end = clean.rfind("}") + 1
-                return json.loads(clean[start:end])
+                start = text.find("{")
+                end = text.rfind("}") + 1
+                return json.loads(text[start:end])
             except:
                 pass
-        return texto
-    
+        return text
+        
     def ver(self, img_bytes):
-        # A função ver é simplificada conforme a sugestão, 
-        # para evitar qualquer processamento pesado que possa travar.
-        return "Módulo de visão offline por enquanto."
+        return "Módulo de visão requer ativação manual."

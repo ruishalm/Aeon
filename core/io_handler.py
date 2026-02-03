@@ -1,7 +1,6 @@
 import os
 import re
 import asyncio
-import subprocess
 import random
 import threading
 import time
@@ -9,22 +8,28 @@ import pygame
 import edge_tts
 import pyttsx3
 import soundfile as sf
-from kokoro_onnx import Kokoro
+
+# --- REMOVI O IMPORT DO TOPO PARA NÃO TRAVAR SE FALTAR DLL ---
+# from kokoro_onnx import Kokoro 
 
 def log_display(msg):
     print(f"[IO_HANDLER] {msg}")
 
 class IOHandler:
     """
-    Gerencia áudio com proteção de threads e suporte a KOKORO (Local Neural).
+    Gerencia áudio com proteção contra falhas de DLL e Threads.
     """
     def __init__(self, config: dict, installer=None):
         self.config = config if config else {}
         self.installer = installer
         self.parar_fala = False
         self.audio_lock = threading.Lock()
-        self.kokoro = None
         
+        # Atributos para lazy loading
+        self.kokoro = None
+        self.kokoro_loaded = False
+        self.kokoro_failed = False
+
         # Caminhos
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.temp_audio_path = os.path.join(base_path, "bagagem", "temp")
@@ -37,26 +42,29 @@ class IOHandler:
         try: 
             pygame.mixer.init()
         except Exception as e: 
-            log_display(f"Erro ao inicializar mixer: {e}")
+            log_display(f"Erro mixer: {e}")
 
-        # Inicializa KOKORO (Carrega na memória RAM)
-        # --- DESATIVADO TEMPORARIAMENTE DEVIDO A ERRO DE PICKLE NO NUMPY/KOKORO ---
-        # if os.path.exists(self.kokoro_path) and os.path.exists(self.voices_path):
-        #     try:
-        #         log_display("Carregando modelo Neural KOKORO...")
-        #         self.kokoro = Kokoro(self.kokoro_path, self.voices_path)
-        #         log_display("KOKORO carregado e pronto.")
-        #     except Exception as e:
-        #         log_display(f"Erro ao carregar Kokoro: {e}")
-        # else:
-        #     log_display("AVISO: Arquivos do Kokoro não encontrados em bagagem/kokoro. Usando fallback.")
+    def _lazy_load_kokoro(self):
+        """Carrega o motor Kokoro apenas quando chamado pela primeira vez."""
+        if self.kokoro_loaded or self.kokoro_failed:
+            return
 
-    def is_busy(self) -> bool:
-        """Verifica se o áudio está sendo reproduzido."""
-        try:
-            return pygame.mixer.music.get_busy()
-        except Exception:
-            return False
+        if os.path.exists(self.kokoro_path):
+            try:
+                log_display("Tentando carregar motor neural (Kokoro) - Lazy Load...")
+                from kokoro_onnx import Kokoro 
+                self.kokoro = Kokoro(self.kokoro_path, self.voices_path)
+                self.kokoro_loaded = True
+                log_display("[OK] Kokoro carregado com sucesso.")
+            except ImportError as e:
+                log_display(f"[AVISO] Falha de DLL no Kokoro. Usando fallback. (Erro: {e})")
+                self.kokoro_failed = True
+            except Exception as e:
+                log_display(f"[AVISO] Erro ao iniciar Kokoro: {e}")
+                self.kokoro_failed = True
+        else:
+            log_display("Arquivo do Kokoro não encontrado. Usando fallback.")
+            self.kokoro_failed = True
 
     def _tocar_audio(self, arquivo: str):
         with self.audio_lock:
@@ -69,17 +77,19 @@ class IOHandler:
                 log_display(f"Erro playback: {e}")
                 return
 
+        # Espera tocar sem travar a thread principal
         while pygame.mixer.music.get_busy():
             if self.parar_fala:
                 pygame.mixer.music.stop()
                 break
             time.sleep(0.1)
         
-        # Limpeza em background
+        # Limpa arquivo depois
         threading.Thread(target=self._limpar_seguro, args=(arquivo,), daemon=True).start()
 
     def _limpar_seguro(self, arquivo: str):
-        try: pygame.mixer.music.unload()
+        try: 
+            pygame.mixer.music.unload() 
         except: pass
         time.sleep(0.5)
         try:
@@ -87,24 +97,32 @@ class IOHandler:
         except: pass
 
     def falar(self, texto: str):
+        """Inicia a geração e reprodução da fala em uma nova thread."""
         if not texto: return
+        
+        # Roda o processo de fala em background para não travar
+        thread_fala = threading.Thread(target=self._falar_worker, args=(texto,), daemon=True)
+        thread_fala.start()
+
+    def _falar_worker(self, texto: str):
+        """Lógica de geração de áudio que roda em background."""
         self.parar_fala = False
         
-        if len(texto) > 1000: texto = texto[:1000] + "..." # Limite de segurança
-        clean_text = re.sub(r'[*_#`]', '', texto).replace('\n', ' ').strip()
+        clean_text = re.sub(r'[*_#`]', '', texto).strip()
+        if len(clean_text) > 800: clean_text = clean_text[:800] + "..."
         if not clean_text: return
 
-        # Arquivo temporário
         temp_file = os.path.join(self.temp_audio_path, f"fala_{random.randint(1000, 9999)}.wav")
 
-        # TENTATIVA 1: KOKORO (Local, Alta Qualidade)
+        # Garante que o Kokoro seja carregado antes de usar
+        self._lazy_load_kokoro()
+
+        # 1. Tenta KOKORO
         if self.kokoro:
             try:
-                # Vozes pt-br mapeadas geralmente usam fonemas específicos. 
-                # 'af_sarah' ou 'bm_lewis' são boas bases, mas precisamos forçar lang="pt-br"
                 samples, sample_rate = self.kokoro.create(
                     clean_text, 
-                    voice="bm_lewis", # Voz masculina grave (tente af_sarah para feminina)
+                    voice="bm_lewis", 
                     speed=1.0, 
                     lang="pt-br"
                 )
@@ -112,33 +130,36 @@ class IOHandler:
                 self._tocar_audio(temp_file)
                 return
             except Exception as e:
-                log_display(f"Kokoro falhou: {e}. Tentando fallback...")
+                log_display(f"Erro ao gerar fala Kokoro: {e}")
 
-        # TENTATIVA 2: EDGE-TTS (Online)
+        # 2. Fallback EDGE-TTS (Se Kokoro falhar ou não existir)
         try:
-            # CORREÇÃO: Garante que a extensão do arquivo seja .mp3 para o EdgeTTS
-            temp_file_mp3 = os.path.join(self.temp_audio_path, f"fala_{random.randint(1000, 9999)}.mp3")
+            # edge-tts precisa de um loop de evento asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
             async def save_edge():
-                voz = self.config.get("VOICE", "pt-BR-AntonioNeural")
-                com = edge_tts.Communicate(clean_text, voz)
-                await com.save(temp_file_mp3)
-            asyncio.run(save_edge())
-            self._tocar_audio(temp_file_mp3)
-            return
-        except: pass
+                com = edge_tts.Communicate(clean_text, "pt-BR-AntonioNeural")
+                await com.save(temp_file)
+            
+            loop.run_until_complete(save_edge())
+            loop.close()
 
-        # TENTATIVA 3: PYTTSX3 (Robótico Offline)
-        try:
-            with self.audio_lock:
-                engine = pyttsx3.init()
-                engine.save_to_file(clean_text, temp_file)
-                engine.runAndWait()
             self._tocar_audio(temp_file)
+            return
         except Exception as e:
-            log_display(f"Tudo falhou: {e}")
+            log_display(f"Erro no Edge-TTS: {e}")
+
+        # 3. Fallback PYTTSX3 (Último recurso)
+        try:
+            engine = pyttsx3.init()
+            engine.save_to_file(clean_text, temp_file)
+            engine.runAndWait()
+            self._tocar_audio(temp_file)
+        except Exception as e: 
+            log_display(f"Todos os métodos de fala falharam. Erro final: {e}")
 
     def play_feedback_sound(self, tipo):
-        # Implemente sons curtos aqui (bip, click) se tiver arquivos
         pass
 
     def calar_boca(self):

@@ -1,132 +1,40 @@
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+import abc
 
-class AeonModule(ABC):
+class AeonModule:
     """
-    A classe base abstrata para todos os módulos do Aeon.
+    Classe Base para todos os módulos do AEON.
+    Restaurada para permitir funcionalidades completas sem travar o boot.
     """
-    
-    def __init__(self, core_context: Dict[str, Any]):
+    def __init__(self, core_context):
         self.core_context = core_context
-        self._name = None
-        self._triggers = []
-        self._dependencies = []
-        self._loaded = False
+        self.config = core_context.get('config_manager')
+        self.io = core_context.get('io_handler')
+        self.brain = core_context.get('brain')
+        self.gui = core_context.get('gui')
+        
+        self.name = "BaseModule"
+        self.triggers = [] # Lista de comandos que ativam este módulo
 
-    @property
-    def name(self) -> str:
-        return getattr(self, '_name', 'Unnamed')
-    
-    @name.setter
-    def name(self, value: str):
-        self._name = value
-
-    @property
-    def triggers(self) -> List[str]:
-        return getattr(self, '_triggers', [])
-    
-    @triggers.setter
-    def triggers(self, value: List[str]):
-        self._triggers = value
-
-    @property
-    def dependencies(self) -> List[str]:
-        return self._dependencies
-    
-    # CORREÇÃO 1: Adicionado Setter para permitir self.dependencies = [...]
-    @dependencies.setter
-    def dependencies(self, value: List[str]):
-        self._dependencies = value
-
-    @property
-    def metadata(self) -> Dict[str, str]:
-        return {
-            "version": "1.0.0",
-            "author": "Unknown",
-            "description": "Módulo sem descrição"
-        }
-
-    @abstractmethod
     def process(self, command: str) -> str:
-        raise NotImplementedError
-
-    def check_dependencies(self) -> bool:
         """
-        Verifica se dependências (Core ou Outros Módulos) estão disponíveis.
+        Método padrão. Se o módulo filho não sobrescrever, 
+        ele apenas retorna None em vez de crashar o sistema.
         """
-        if not self.dependencies:
-            return True
-        
-        module_manager = self.core_context.get("module_manager")
-        
-        # Lista de nomes de módulos carregados (se houver)
-        loaded_modules = []
-        if module_manager and hasattr(module_manager, 'get_loaded_modules'):
-            loaded_modules = [m.name.lower() for m in module_manager.get_loaded_modules()]
+        return None
 
-        for dep in self.dependencies:
-            dep_key = dep.lower()
-            
-            # 1. Verifica no Core Context (Brain, IO, Config, etc.)
-            # Nota: main.py deve usar chaves compatíveis (ex: 'brain', 'io_handler')
-            if dep_key in self.core_context and self.core_context[dep_key] is not None:
-                continue # Achou no Core, próximo
-            
-            # 2. Verifica se é um Módulo carregado (ex: 'biblioteca' depende de 'web')
-            if dep_key in loaded_modules:
-                continue # Achou nos módulos, próximo
+    # --- Métodos Utilitários (Helpers) para os Módulos ---
+    
+    def log(self, message, type="INFO"):
+        """Envia log para o terminal formatado"""
+        print(f"[{self.name.upper()}] {message}")
 
-            # Se chegou aqui, falhou
-            print(f"[{self.name}] Dependência ausente: {dep}")
-            return False
-        
-        return True
+    def send_gui(self, message, sender=None):
+        """Atalho para mandar mensagem na bolha azul"""
+        if self.gui:
+            author = sender if sender else self.name.upper()
+            self.gui.add_message(message, author)
 
-    def on_load(self) -> bool:
-        self._loaded = True
-        return True
-
-    def on_unload(self) -> bool:
-        self._loaded = False
-        return True
-
-    def is_loaded(self) -> bool:
-        return self._loaded
-
-    def get_tools(self) -> List[Dict[str, Any]]:
-        """
-        Retorna uma lista de definições de ferramentas (funções) que este módulo expõe para a IA.
-        O formato deve ser compatível com a especificação de 'function calling' de LLMs.
-
-        Exemplo de retorno:
-        [
-          {
-            "type": "function",
-            "function": {
-              "name": "NomeDoModulo.nome_da_funcao",
-              "description": "Descrição clara do que a função faz.",
-              "parameters": {
-                "type": "object",
-                "properties": {
-                  "nome_do_param": {
-                    "type": "string",
-                    "description": "Descrição do parâmetro."
-                  }
-                },
-                "required": ["nome_do_param"]
-              }
-            }
-          }
-        ]
-        """
-        return []
-
-    def get_info(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "triggers": self.triggers,
-            "dependencies": self.dependencies,
-            "metadata": self.metadata,
-            "loaded": self.is_loaded(),
-            "dependencies_ok": self.check_dependencies()
-        }
+    def speak(self, text):
+        """Atalho para falar"""
+        if self.io:
+            self.io.falar(text)

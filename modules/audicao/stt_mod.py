@@ -1,126 +1,136 @@
 import threading
 import speech_recognition as sr
 import numpy as np
-import os
 import time
-from faster_whisper import WhisperModel
 from modules.base_module import AeonModule
 
+# NENHUMA importação pesada aqui para garantir o boot rápido.
+
 class STTModule(AeonModule):
-    """
-    Módulo de Audição Blindado (Versão Final).
-    - Sem Picovoice (Wake Word por energia).
-    - Faster-Whisper automático (Small/Int8).
-    - Carregamento tardio para não travar o boot.
-    """
     def __init__(self, core_context):
         super().__init__(core_context)
         self.name = "Audicao"
-        # Palavras que ativam o sistema sem passar pelo Brain
-        self.triggers = ["escuta", "escutar", "ativar", "parar", "dormir", "calibrar"]
+        self.triggers = ["escuta", "escutar", "ativar", "parar", "dormir"]
         self.listening = False
         self.recognizer = None 
         self.model = None
-        self.mic_source = None
+        # None = não verificado, True = advanced engine disponível, False = não disponível
+        self.drivers_ok = None
 
     def process(self, command: str) -> str:
         cmd = command.lower()
         
-        # 1. Comandos de Controle
         if "calibrar" in cmd:
-            return "Calibrando sensibilidade do microfone... Fique em silêncio."
+            return "Calibrando microfone..."
 
-        if any(w in cmd for w in ["escuta", "ativar"]):
+        # Usa as triggers configuradas para decidir ativação (mantém "parar"/"dormir" separadas)
+        activate_keywords = [k for k in self.triggers if k not in ("parar", "dormir")]
+        if any(w in cmd for w in activate_keywords):
             if not self.listening:
                 self.listening = True
-                # Inicia em thread separada para não congelar a GUI
+                # A verificação de drivers e o carregamento do modelo ocorrerão na thread
                 threading.Thread(target=self._start_engine, daemon=True).start()
-                return "Iniciando protocolos de audição..."
-            return "Meus ouvidos já estão abertos."
+                return "Ouvidos abertos. (Inicializando sistema de áudio...)"
+            return "Já estou ouvindo."
         
         if "parar" in cmd or "dormir" in cmd:
             self.listening = False
-            return "Audição encerrada."
+            return "Audição pausada."
             
         return None 
 
+    def _check_drivers(self):
+        """Verifica os drivers de áudio pesados apenas uma vez."""
+        if self.drivers_ok is not None:
+            return self.drivers_ok
+
+        try:
+            # --- IMPORTS PESADOS AQUI ---
+            import torch
+            from faster_whisper import WhisperModel
+            # --------------------------
+            self.drivers_ok = True
+            print("[AUDICAO] Drivers de áudio verificados com sucesso.")
+            return True
+        except ImportError as e:
+            print(f"[AUDICAO] ⚠️ AVISO: driver de áudio avançado faltando. Erro: {e}")
+            self.drivers_ok = False
+            return False
+        except Exception as e:
+            print(f"[AUDICAO] ⚠️ AVISO: Falha crítica na DLL do PyTorch. (WinError 1114). {e}")
+            self.drivers_ok = False
+            return False
+
     def _start_engine(self):
-        """Carrega o peso do Whisper só agora."""
         gui = self.core_context.get("gui")
-        
-        # Carrega SpeechRecognition se ainda não carregou
-        if not self.recognizer:
-            if gui: gui.add_message("Carregando drivers auditivos...", "SISTEMA")
+
+        # 1. Verifica os drivers (importações pesadas) de forma segura
+        advanced = self._check_drivers()
+        if not advanced and gui:
+            gui.add_message("Driver de áudio avançado indisponível — usando fallback SpeechRecognition.", "AVISO")
+
+        # 2. Se os drivers estiverem OK, carrega o modelo
+        self.recognizer = sr.Recognizer()
+        self.recognizer.energy_threshold = 1000
+
+        if advanced:
             try:
-                self.recognizer = sr.Recognizer()
-                self.recognizer.energy_threshold = 1000 # Sensibilidade padrão
-                self.recognizer.dynamic_energy_threshold = True
-                
-                # Carrega o Modelo Faster-Whisper
-                # 'small' é o equilíbrio perfeito. Ele baixa sozinho se não tiver.
-                print("[AUDIÇÃO] Carregando modelo Whisper 'small'...")
+                if gui: gui.add_message("Carregando Whisper AI...", "SISTEMA")
+                from faster_whisper import WhisperModel
                 self.model = WhisperModel("small", device="cpu", compute_type="int8")
-                
-                if gui: gui.add_message("Ouvido Biônico: ONLINE", "SISTEMA")
-            except Exception as e:
-                print(f"[AUDIÇÃO] Erro fatal no driver: {e}")
-                if gui: gui.add_message(f"Falha de driver: {e}", "ERRO")
-                self.listening = False
+                if gui: gui.add_message("Audição Neural: ONLINE", "SISTEMA")
+                # Inicia loop com modelo avançado
+                self._listen_loop(fallback=False)
                 return
+            except Exception as e:
+                print(f"[AUDIÇÃO] Erro ao carregar modelo avançado: {e}")
+                if gui: gui.add_message("Falha ao carregar modelo avançado — usando fallback.", "ERRO")
 
-        self._listen_loop()
+        # Se chegou até aqui, usa fallback baseado em SpeechRecognition (Google/Sphinx)
+        self._listen_loop(fallback=True)
 
-    def _listen_loop(self):
+    def _listen_loop(self, fallback=False):
         gui = self.core_context.get("gui")
-        print("[AUDIÇÃO] Loop iniciado.")
+        if gui: gui.set_status("OUVINDO...")
         
         while self.listening:
             try:
                 with sr.Microphone(sample_rate=16000) as source:
-                    # Ajuste de ruído rápido (opcional, pode deixar lento se o ambiente for barulhento)
-                    # self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                    
-                    print("[AUDIÇÃO] Aguardando som...")
                     try:
-                        # Ouve com timeout curto para checar se self.listening mudou
-                        audio = self.recognizer.listen(source, timeout=3, phrase_time_limit=10)
+                        audio = self.recognizer.listen(source, timeout=2, phrase_time_limit=10)
                     except sr.WaitTimeoutError:
-                        continue # Ninguém falou, segue o loop
+                        continue 
 
                     if not self.listening: break
 
-                    if gui: gui.add_message("Processando áudio...", "STATUS")
+                    if gui: gui.set_status("PROCESSANDO...")
                     
-                    # --- Decodificação (Faster Whisper) ---
-                    # 1. Converte bytes brutos para float32
-                    raw_data = audio.get_raw_data()
-                    audio_np = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32) / 32768.0
-                    
-                    # 2. Transcreve
-                    segments, _ = self.model.transcribe(
-                        audio_np, 
-                        language="pt", 
-                        beam_size=5,
-                        vad_filter=True, # Filtra respiração e ventilador
-                        vad_parameters=dict(min_silence_duration_ms=500)
-                    )
-                    
-                    texto_final = " ".join([s.text for s in segments]).strip()
+                    if not fallback and self.model is not None:
+                        raw_data = audio.get_raw_data()
+                        audio_np = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32) / 32768.0
+                        segments, _ = self.model.transcribe(
+                            audio_np, language="pt", beam_size=5,
+                            vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500)
+                        )
+                        texto_final = " ".join([s.text for s in segments]).strip()
+                    else:
+                        # Fallback para Google Speech Recognition (requer internet) — mais leve
+                        try:
+                            texto_final = self.recognizer.recognize_google(audio, language="pt-BR")
+                        except sr.UnknownValueError:
+                            texto_final = ""
+                        except Exception as e:
+                            print(f"[AUDIÇÃO] Erro no reconhecimento fallback: {e}")
+                            texto_final = ""
                     
                     if texto_final:
-                        print(f"[VOCÊ]: {texto_final}")
-                        if gui: gui.add_message(texto_final, "VOCÊ")
+                        if gui: gui.logic_callback(texto_final)
                         
-                        # Comandos de Voz Imediatos
-                        if any(x in texto_final.lower() for x in ["parar audição", "dormir", "desativar"]):
+                        if any(x in texto_final.lower() for x in ["parar", "chega", "dormir"]):
                             self.listening = False
-                            if gui: gui.add_message("Dormindo.", "AEON")
-                        else:
-                            # Envia para o Cérebro processar
-                            if gui: gui.process_in_background(texto_final)
-            
             except Exception as e:
-                print(f"[AUDIÇÃO] Erro no loop: {e}")
-                time.sleep(1) # Espera um pouco antes de tentar de novo
+                # Evita crashar se o microfone for desconectado, etc.
+                print(f"[AUDIÇÃO] Erro no loop de escuta: {e}")
+                time.sleep(2)
         
-        print("[AUDIÇÃO] Loop encerrado.")
+        if gui: gui.set_status("ONLINE")
