@@ -30,15 +30,10 @@ class ConfigManager:
 
         self.system_data = self._load_json(self.sys_path, default={"apps": {}, "routines": {}, "triggers": [], "themes": {}})
         
-        # Se o arquivo não existir ou não tiver a chave, cria/avisa
-        if not self.sys_path.exists() or "GROQ_KEY" not in self.system_data:
-            print(f"\n{'='*60}")
-            print(f"[CONFIG] ARQUIVO DE SISTEMA CRIADO/CARREGADO EM:\n   {self.sys_path}")
-            print(f"[CONFIG] >> COLOQUE SUA GROQ_KEY DENTRO DESTE ARQUIVO! <<")
-            print(f"{'='*60}\n")
-            if not self.sys_path.exists():
-                self.system_data["GROQ_KEY"] = ""
-                self._save_json(self.sys_path, self.system_data)
+        # O aviso sobre a chave foi removido para evitar confusão,
+        # uma vez que as chaves agora são gerenciadas pelo .env.
+        if not self.sys_path.exists():
+             self._save_json(self.sys_path, self.system_data)
 
         self.tasks = self._load_json(self.tasks_path, default=[])
         self.memory = self._load_json(self.mem_path, default=[])

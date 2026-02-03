@@ -40,15 +40,23 @@ class IOHandler:
             log_display(f"Erro ao inicializar mixer: {e}")
 
         # Inicializa KOKORO (Carrega na memória RAM)
-        if os.path.exists(self.kokoro_path) and os.path.exists(self.voices_path):
-            try:
-                log_display("Carregando modelo Neural KOKORO...")
-                self.kokoro = Kokoro(self.kokoro_path, self.voices_path)
-                log_display("KOKORO carregado e pronto.")
-            except Exception as e:
-                log_display(f"Erro ao carregar Kokoro: {e}")
-        else:
-            log_display("AVISO: Arquivos do Kokoro não encontrados em bagagem/kokoro. Usando fallback.")
+        # --- DESATIVADO TEMPORARIAMENTE DEVIDO A ERRO DE PICKLE NO NUMPY/KOKORO ---
+        # if os.path.exists(self.kokoro_path) and os.path.exists(self.voices_path):
+        #     try:
+        #         log_display("Carregando modelo Neural KOKORO...")
+        #         self.kokoro = Kokoro(self.kokoro_path, self.voices_path)
+        #         log_display("KOKORO carregado e pronto.")
+        #     except Exception as e:
+        #         log_display(f"Erro ao carregar Kokoro: {e}")
+        # else:
+        #     log_display("AVISO: Arquivos do Kokoro não encontrados em bagagem/kokoro. Usando fallback.")
+
+    def is_busy(self) -> bool:
+        """Verifica se o áudio está sendo reproduzido."""
+        try:
+            return pygame.mixer.music.get_busy()
+        except Exception:
+            return False
 
     def _tocar_audio(self, arquivo: str):
         with self.audio_lock:
@@ -108,12 +116,14 @@ class IOHandler:
 
         # TENTATIVA 2: EDGE-TTS (Online)
         try:
+            # CORREÇÃO: Garante que a extensão do arquivo seja .mp3 para o EdgeTTS
+            temp_file_mp3 = os.path.join(self.temp_audio_path, f"fala_{random.randint(1000, 9999)}.mp3")
             async def save_edge():
                 voz = self.config.get("VOICE", "pt-BR-AntonioNeural")
                 com = edge_tts.Communicate(clean_text, voz)
-                await com.save(temp_file)
+                await com.save(temp_file_mp3)
             asyncio.run(save_edge())
-            self._tocar_audio(temp_file)
+            self._tocar_audio(temp_file_mp3)
             return
         except: pass
 

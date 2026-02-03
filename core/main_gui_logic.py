@@ -7,20 +7,11 @@ import threading
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from core.module_manager import ModuleManager
-# Tenta importar Brain de forma robusta
-try:
-    from core.brain import AeonBrain as Brain
-except ImportError:
-    try:
-        from core.brain import Brain
-    except ImportError:
-        print("ERRO CRÍTICO: Classe Brain não encontrada.")
-
-from core.io_handler import IOHandler
-from core.config_manager import ConfigManager
-from core.context_manager import ContextManager 
-from core.installer import AeonInstaller
+# As importações do Core não são mais necessárias aqui, pois são injetadas
+# mas mantemos para type hinting ou clareza se necessário.
+# from core.module_manager import ModuleManager
+# from core.io_handler import IOHandler
+# etc.
 
 # CONFIGURAÇÕES DE TEMA (CYBERPUNK)
 C = {
@@ -33,47 +24,22 @@ ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("dark-blue")
 
 class AeonGUI(ctk.CTk):
-    def __init__(self):
+    def __init__(self, core_context: dict):
         super().__init__()
-        import os # Importação blindada local
         
-        # Inicializa o Instalador e verifica dependências críticas
-        self.installer = AeonInstaller()
-        threading.Thread(target=self.installer.check_pyaudio, daemon=True).start()
+        # --- INJEÇÃO DE DEPENDÊNCIA ---
+        # A GUI agora recebe o core pronto, não o cria.
+        self.core_context = core_context
+        self.config_manager = core_context.get("config_manager")
+        self.io_handler = core_context.get("io_handler")
+        self.brain = core_context.get("brain")
+        self.context_manager = core_context.get("context_manager")
+        self.module_manager = core_context.get("module_manager")
+        self.workspace_path = core_context.get("workspace")
+        self.installer = core_context.get("installer") # Pode ser None
 
-        self.config_manager = ConfigManager()
-        cfg = getattr(self.config_manager, 'config', {}) 
-        self.io_handler = IOHandler(cfg, self.installer)
-        
-        try:
-            print(f"[DEBUG] Carregando Dashboard de: {__file__}")
-            # Agora o Brain aceita o ConfigManager diretamente e o installer é opcional
-            self.brain = Brain(self.config_manager)
-        except Exception as e:
-            print(f"[MAIN] Erro ao iniciar Brain: {e}")
-            self.brain = None
-
-        self.context_manager = ContextManager() 
-        
-        # Define o caminho absoluto do Workspace para garantir que todos os módulos usem a mesma pasta
-        self.workspace_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspace")
-        os.makedirs(self.workspace_path, exist_ok=True)
-
-        self.core_context = {
-            "config_manager": self.config_manager,
-            "io_handler": self.io_handler,
-            "brain": self.brain,
-            "context": self.context_manager,
-            "gui": self,
-            "workspace": self.workspace_path,
-            "installer": self.installer
-        }
-
-        self.module_manager = ModuleManager(self.core_context)
-        self.core_context["module_manager"] = self.module_manager
-        self.module_manager.load_modules()
-
-        self.title("AEON V85 // NEURAL INTERFACE")
+        # O resto da inicialização da GUI permanece o mesmo
+        self.title("AEON V86 // NEURAL INTERFACE") # Versão atualizada
         self.geometry("1200x700")
         self.configure(fg_color=C["bg"])
         self.minsize(1000, 600)
@@ -90,11 +56,19 @@ class AeonGUI(ctk.CTk):
         self.running = True
         threading.Thread(target=self.loop_vitals, daemon=True).start()
         
-        self.add_message("Sistema Online. V85 Estabilizada.", "SISTEMA")
-        self.update_module_list()
+        self.add_message("Sistema Online. V86 Estabilizada.", "SISTEMA")
+        
+        # A lista de módulos será atualizada à medida que eles forem carregados
+        # pela thread em main.py. Precisamos de um novo método para isso.
+        if self.module_manager:
+            self.module_manager.on_module_loaded = self.on_module_loaded_callback
 
         # Ativa a escuta automaticamente ao iniciar
         self.toggle_mic()
+
+    def on_module_loaded_callback(self, module_name):
+        """Callback para atualizar a UI quando um módulo é carregado."""
+        self.after(0, self.add_module_status, module_name, True)
 
     def setup_left_panel(self):
         self.frame_left = ctk.CTkFrame(self, fg_color=C["panel_bg"], corner_radius=0)
@@ -139,16 +113,6 @@ class AeonGUI(ctk.CTk):
         frame.canvas = canvas
         frame.led = led_id
         return frame
-
-    def update_module_list(self):
-        for widget in self.scroll_modules.winfo_children():
-            widget.destroy()
-        try:
-            modules = self.module_manager.get_loaded_modules()
-            for mod in modules:
-                self.add_module_status(mod.name, True)
-        except Exception as e:
-            print(f"[GUI_ERROR] Falha lista: {e}")
 
     def add_module_status(self, name, active):
         row = ctk.CTkFrame(self.scroll_modules, fg_color=C["panel_bg"])
@@ -202,20 +166,14 @@ class AeonGUI(ctk.CTk):
             if not part.strip(): continue
             is_code = i % 2 != 0
             bg_color = C["code_bg"] if is_code else bubble_color
-            
-            # --- CORREÇÃO FEITA AQUI ---
-            # Antes estava: border_color="#30363d" if is_code else "transparent"
-            # Agora está:
             border_c = "#30363d" if is_code else bg_color 
 
             parent_widget = msg_frame
             
             if is_code:
-                # Container para o bloco de código (Botão + Texto)
                 code_container = ctk.CTkFrame(msg_frame, fg_color="transparent")
                 code_container.pack(fill="x", pady=2, padx=5)
                 
-                # Cabeçalho com botão de copiar
                 header = ctk.CTkFrame(code_container, fg_color=bg_color, corner_radius=6, height=25)
                 header.pack(fill="x", pady=(0,0))
                 ctk.CTkButton(header, text="📋 Copiar", width=60, height=20, font=("Consolas", 10), fg_color="#238636", hover_color="#2ea043", command=lambda t=part.strip(): self.copy_to_clipboard(t)).pack(side="right", padx=5, pady=2)
@@ -227,7 +185,7 @@ class AeonGUI(ctk.CTk):
                                      fg_color=bg_color, 
                                      text_color="#3fb950" if is_code else text_color,
                                      border_width=1 if is_code else 0,
-                                     border_color=border_c, # <--- AQUI É O SEGREDO
+                                     border_color=border_c,
                                      corner_radius=12 if not is_code else 6,
                                      wrap="word" if not is_code else "none")
             
@@ -249,32 +207,23 @@ class AeonGUI(ctk.CTk):
             threading.Thread(target=self.process_in_background, args=(txt,), daemon=True).start()
 
     def process_in_background(self, txt):
-        # Feedback visual imediato para o usuário não achar que travou
         self.lbl_cpu.configure(text="CPU: PROCESSANDO...") 
-        
-        # Toca um som de "computando" se possível (opcional)
         if self.io_handler:
-            # Toca um som curto assíncrono para dar feedback tátil
             threading.Thread(target=lambda: self.io_handler.play_feedback_sound('start'), daemon=True).start()
 
         def _task():
             try:
-                # O processamento pesado acontece aqui
                 response = self.module_manager.route_command(txt)
-                
-                # Atualiza GUI na thread principal
                 self.after(0, lambda: self.add_message(response, "AEON"))
                 self.after(0, lambda: self.io_handler.falar(response))
             except Exception as e:
                 self.after(0, lambda: self.add_message(f"Erro Crítico: {e}", "SISTEMA"))
             finally:
                  self.after(0, lambda: self.lbl_cpu.configure(text="CPU: OCIOSO"))
-
-        # Lança a thread de pensamento
         threading.Thread(target=_task, daemon=True).start()
 
     def toggle_mic(self):
-        threading.Thread(target=self.process_in_background, args=("escuta passiva",), daemon=True).start()
+        threading.Thread(target=self.process_in_background, args=("escuta",), daemon=True).start()
         self.btn_mic.configure(fg_color=C["accent_secondary"])
 
     def setup_right_panel(self):
@@ -351,12 +300,14 @@ class AeonGUI(ctk.CTk):
             self.lbl_cpu.configure(text=f"CPU: {cpu}%")
             self.bar_ram.set(ram / 100)
             self.lbl_ram.configure(text=f"RAM: {ram}%")
-            if hasattr(self, 'brain') and self.brain:
+            if self.brain:
                 online = getattr(self.brain, 'online', False)
                 cor_online = C["accent_primary"] if online else C["accent_alert"]
                 self.led_online.canvas.itemconfig(self.led_online.led, fill=cor_online)
         except: pass
 
 if __name__ == "__main__":
-    app = AeonGUI()
-    app.mainloop()
+    # Este modo de execução é para teste. O principal é o main.py
+    # Para testes, precisaríamos de um core_context mock.
+    print("Este arquivo é uma GUI. Execute o main.py para iniciar o Aeon.")
+    pass

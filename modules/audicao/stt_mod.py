@@ -38,11 +38,19 @@ class STTModule(AeonModule):
         self.whisper_model = None
 
     def on_load(self) -> bool:
-        # installer = self.core_context.get("installer")
-        # if installer:
-        #     installer.check_pyaudio()
-        
-        # O modelo Whisper será carregado sob demanda (lazy-loading)
+        if not self.picovoice_key:
+            print("[AUDIÇÃO][ERRO] PICOVOICE_ACCESS_KEY não configurada no .env! Módulo desativado.")
+            return False
+            
+        # Verifica se o modelo Whisper existe, para falhar rápido se não existir.
+        bagagem_path = "bagagem"
+        model_path = os.path.join(bagagem_path, "models", "systran-whisper-base")
+        if not os.path.exists(model_path):
+            print(f"[AUDIÇÃO][ERRO] Modelo Whisper não encontrado em '{model_path}'. Módulo desativado.")
+            return False
+
+        # O modelo Whisper em si ainda será carregado sob demanda (lazy-loading)
+        # para não atrasar a inicialização principal.
         return True
 
     def process(self, command: str) -> str:

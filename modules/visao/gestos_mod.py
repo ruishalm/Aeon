@@ -1,4 +1,4 @@
-# SAFE IMPORT V85
+# SAFE IMPORT V86
 try:
     import cv2
     import mediapipe as mp
@@ -61,7 +61,26 @@ class GestosModule(AeonModule):
         return super().check_dependencies()
 
     def on_load(self) -> bool:
-        # Módulo reativado para lidar com gestos.
+        """Verifica as dependências críticas no momento do carregamento."""
+        if not GEAR_AVAILABLE:
+            print("[GEAR][ERRO] 'opencv-python' ou 'mediapipe' não instalados. Módulo de gestos desativado.")
+            return False
+        
+        # Se o modelo não existir, tenta baixá-lo agora.
+        if not os.path.exists(self.model_path) or os.path.getsize(self.model_path) < 1000:
+            print(f"[GEAR] Modelo de gestos '{os.path.basename(self.model_path)}' ausente. Baixando...")
+            installer = self.core_context.get("installer")
+            if installer and hasattr(installer, 'download_file'):
+                url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+                success = installer.download_file(url, self.model_path)
+                if not success:
+                    print(f"[GEAR][ERRO] Falha ao baixar o modelo de gestos. Módulo desativado.")
+                    return False
+            else:
+                print("[GEAR][ERRO] Installer não disponível para baixar o modelo. Módulo desativado.")
+                return False
+        
+        print("[GEAR] Dependências e modelo de gestos verificados com sucesso.")
         return True
 
     def process(self, command: str) -> str:

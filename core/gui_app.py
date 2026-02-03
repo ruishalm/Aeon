@@ -65,7 +65,7 @@ class AeonGUI(ctk.CTk):
         self.core_context["module_manager"] = self.module_manager
         self.module_manager.load_modules()
 
-        self.title("AEON V85 // NEURAL INTERFACE")
+        self.title("AEON V86 // NEURAL INTERFACE")
         self.geometry("1200x700")
         self.configure(fg_color=C["bg"])
         self.minsize(1000, 600)
@@ -87,7 +87,7 @@ class AeonGUI(ctk.CTk):
 
         threading.Thread(target=self.loop_vitals, daemon=True).start()
         
-        self.add_message("Sistema Online. V85 Estabilizada.", "SISTEMA")
+        self.add_message("Sistema Online. V86 Estabilizada.", "SISTEMA")
         self.update_module_list()
 
     def setup_left_panel(self):

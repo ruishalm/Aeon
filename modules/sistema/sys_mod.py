@@ -119,14 +119,21 @@ class SistemaModule(AeonModule):
         ]
 
     def process(self, command: str) -> str:
-        # A lógica principal agora é feita pela IA chamando os métodos diretamente.
-        # O método process vira um fallback para comandos de bypass.
-        if "status" in command: return self.obter_status_sistema()
-        if "desligar computador" in command: return self.desligar_computador()
-        if "reiniciar computador" in command: return self.reiniciar_computador()
-        if "ficar offline" in command: return self.go_offline()
-        if "ficar online" in command: return self.go_online()
-        return "Comando de sistema não reconhecido. Tente usar linguagem natural."
+        # Este método agora é apenas um fallback para comandos de bypass,
+        # tornando as verificações mais explícitas para evitar falsos positivos.
+        cmd_lower = command.lower()
+        if cmd_lower == "status do sistema": return self.obter_status_sistema()
+        if cmd_lower == "desligar computador": return self.desligar_computador()
+        if cmd_lower == "reiniciar computador": return self.reiniciar_computador()
+        if cmd_lower == "ficar offline": return self.go_offline()
+        if cmd_lower == "ficar online": return self.go_online()
+        
+        # Mantém o gatilho "abre" um pouco mais flexível como exemplo de fallback
+        if cmd_lower.startswith("abre "):
+            app_name = command.replace("abre ", "").strip()
+            return self.abrir_aplicativo(app_name)
+
+        return "" # Retorna vazio se nenhum comando de fallback exato for encontrado
 
     def go_offline(self) -> str:
         """Força o cérebro a usar o modelo local."""

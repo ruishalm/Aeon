@@ -4,28 +4,16 @@ import random
 import ctypes
 import threading
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QLineEdit, QFrame, QLabel, QMenu
-from PyQt6.QtCore import Qt, QTimer, QPoint, QPointF, pyqtSignal, QRectF, QThread, QObject
+from PyQt6.QtCore import Qt, QTimer, QPoint, QPointF, pyqtSignal, QRectF, QObject
 from PyQt6.QtGui import QPainter, QColor, QRadialGradient, QBrush, QPen, QPainterPath
 from pynput import keyboard as pynput_keyboard
 
-# Importações do Core
-from core.module_manager import ModuleManager
-from core.io_handler import IOHandler
-from core.config_manager import ConfigManager
-from core.context_manager import ContextManager
-
-try:
-    from core.brain import AeonBrain as Brain
-except ImportError:
-    try:
-        from core.brain import Brain
-    except ImportError:
-        print("ERRO CRÍTICO: Classe Brain não encontrada.")
+# As importações do Core agora são injetadas, não criadas aqui.
 
 # --- CONFIGURAÇÕES DE CORES ---
 C_ACTIVE = QColor(255, 0, 0)
 C_PROCESS = QColor(0, 191, 255)
-C_LOADING = QColor(255, 165, 0) # Laranja para carregando
+C_LOADING = QColor(255, 165, 0)
 C_BG_INPUT = "#000000"
 C_BORDER = "#8B0000"
 C_TEXT = "#FFFFFF"
@@ -33,31 +21,7 @@ C_PASTEL = QColor(200, 150, 150, 40)
 C_AURA_ONLINE = QColor(0, 255, 0, 255)
 C_AURA_OFFLINE = QColor(255, 0, 0, 255)
 
-# --- WORKER PARA CARREGAMENTO DE MÓDULOS ---
-class ModuleLoaderWorker(QObject):
-    """Executa o carregamento de módulos em uma thread separada para não congelar a GUI."""
-    finished = pyqtSignal()
-    progress = pyqtSignal(str)
-
-    def __init__(self, module_manager):
-        super().__init__()
-        self.module_manager = module_manager
-
-    def run(self):
-        print("[WORKER] Iniciando carregamento de módulos em segundo plano...")
-        try:
-            # Modificamos o ModuleManager para aceitar um callback, se possível,
-            # ou apenas o executamos como está. Para este fix, vamos apenas rodá-lo.
-            self.module_manager.load_modules()
-            print("[WORKER] Carregamento de módulos concluído.")
-        except Exception as e:
-            print(f"[WORKER] Erro ao carregar módulos: {e}")
-            self.progress.emit(f"Erro: {e}")
-        finally:
-            self.finished.emit()
-
 class SpeechBubble(QLabel):
-    # (Código do SpeechBubble inalterado)
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWordWrap(True)
@@ -77,56 +41,33 @@ class SpeechBubble(QLabel):
 class AeonSphere(QMainWindow):
     activate_signal = pyqtSignal()
     timer_signal = pyqtSignal(int, object, tuple)
+    modules_loaded_signal = pyqtSignal()
 
-    def __init__(self):
+    def __init__(self, core_context: dict):
         super().__init__()
-        print("[BOOT] Iniciando Interface Neural (Esfera)...")
+        print("[SPHERE] Iniciando Interface Neural...")
 
-        # --- ETAPA 1: INICIALIZAÇÃO DO CORE (LEVE) ---
+        # --- INJEÇÃO DE DEPENDÊNCIA ---
+        self.core_context = core_context
+        self.config_manager = core_context.get("config_manager")
+        self.io_handler = core_context.get("io_handler")
+        self.brain = core_context.get("brain")
+        self.context_manager = core_context.get("context_manager")
+        self.module_manager = core_context.get("module_manager")
+        
+        # Registra um callback no ModuleManager
+        if self.module_manager:
+            self.module_manager.on_all_modules_loaded = self.modules_loaded_signal.emit
+
         self.hotkey_listener = None
-        print("[CONFIG] Carregando configurações...")
-        self.config_manager = ConfigManager()
-        cfg = getattr(self.config_manager, 'config', {})
-        
-        self.io_handler = IOHandler(cfg, None) # TTS será configurado depois
-        try:
-            self.brain = Brain(self.config_manager)
-        except Exception as e:
-            print(f"[SPHERE] Erro ao iniciar Brain: {e}")
-            self.brain = None
-        
-        self.context_manager = ContextManager()
-        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.workspace_path = os.path.join(root_dir, "workspace")
-        os.makedirs(self.workspace_path, exist_ok=True)
-        
-        # O 'gui' é self, adicionado ao contexto
-        self.core_context = {
-            "config_manager": self.config_manager,
-            "io_handler": self.io_handler,
-            "brain": self.brain,
-            "context": self.context_manager,
-            "gui": self,
-            "workspace": self.workspace_path,
-        }
-        
-        self.module_manager = ModuleManager(self.core_context)
-        self.core_context["module_manager"] = self.module_manager
-        
-        # Conecta o cérebro ao IO Handler agora que ambos existem
-        if hasattr(self.io_handler, 'set_brain'):
-            self.io_handler.set_brain(self.brain)
-        else:
-            # Fallback seguro caso o método não exista no IOHandler atual
-            self.io_handler.brain = self.brain
 
-        # --- ETAPA 2: CONFIGURAÇÃO DA JANELA E ESTADO DE CARREGAMENTO ---
+        # --- CONFIGURAÇÃO DA JANELA ---
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         screen_geo = QApplication.primaryScreen().geometry()
         self.setGeometry(screen_geo.width() - 280, 50, 250, 250)
         
-        self.state = "LOADING" # Estado inicial de carregamento
+        self.state = "LOADING"
         self.base_radius = 50; self.current_radius = 50; self.target_radius = 50; self.pulse_phase = 0; self.orbit_angles = [random.uniform(0, 2 * math.pi) for _ in range(3)]; self.orbit_speeds = [random.uniform(0.002, 0.004) for _ in range(3)]; self.orbit_factors = [random.uniform(1.05, 1.15) for _ in range(3)]; self.is_interactive = False; self.drag_pos = None; self.hidden_mode = False; self.ring_angle = 0
         self.visual_mode = "ACTIVE"; self.sleep_timer = QTimer(); self.sleep_timer.timeout.connect(self.go_to_sleep)
         
@@ -134,36 +75,24 @@ class AeonSphere(QMainWindow):
         self.response_label = SpeechBubble(self.central_widget); self.response_label.setGeometry(10, -10, 230, 80); self.response_label.hide()
         self.input_frame = QFrame(self.central_widget); self.input_frame.setGeometry(25, 160, 200, 45); self.input_frame.setStyleSheet(f"QFrame {{ background-color: {C_BG_INPUT}; border: 2px solid {C_BORDER}; border-radius: 10px; }}")
         
-        # Input box começa desabilitado durante o carregamento
         self.input_box = QLineEdit(self.input_frame); self.input_box.setGeometry(10, 10, 180, 30); self.input_box.setPlaceholderText("Carregando..."); self.input_box.setStyleSheet(f"background: transparent; border: none; color: {C_TEXT}; font-family: Consolas;"); self.input_box.returnPressed.connect(self.on_submit); self.input_box.setEnabled(False)
         
+        # --- TIMERS E HOTKEYS ---
         self.anim_timer = QTimer(); self.anim_timer.timeout.connect(self.animate); self.anim_timer.start(30)
-        self.activate_signal.connect(lambda: self.set_click_through(False)); self.timer_signal.connect(self._handle_timer_signal); threading.Thread(target=self._setup_global_hotkey, daemon=True).start()
+        self.activate_signal.connect(lambda: self.set_click_through(False))
+        self.timer_signal.connect(self._handle_timer_signal)
+        threading.Thread(target=self._setup_global_hotkey, daemon=True).start()
         
+        # Conecta o sinal de módulos carregados ao slot
+        self.modules_loaded_signal.connect(self.on_modules_loaded)
+        
+        # Feedback inicial
         self.io_handler.falar("Iniciando Aeon.")
-        
-        # --- ETAPA 3: CARREGAMENTO DE MÓDULOS EM SEGUNDO PLANO ---
-        self.thread = QThread()
-        self.worker = ModuleLoaderWorker(self.module_manager)
-        self.worker.moveToThread(self.thread)
-        
-        self.thread.started.connect(self.worker.run)
-        self.worker.finished.connect(self.on_modules_loaded)
-        self.worker.finished.connect(self.thread.quit)
-        # self.worker.finished.connect(self.worker.deleteLater) # Comentado para evitar deleção prematura
-        # self.thread.finished.connect(self.thread.deleteLater)
-        
-        self.thread.start()
-        
-        print("[BOOT] Sequência de inicialização da GUI concluída. Aguardando módulos...")
-        
-        # --- SAFETY TIMEOUT ---
-        # Se algum módulo travar o carregamento, força a abertura após 15 segundos
-        QTimer.singleShot(15000, self._force_finish_loading)
+        print("[SPHERE] Sequência de inicialização da GUI concluída. Aguardando módulos...")
 
     def on_modules_loaded(self):
-        """Slot executado na thread principal quando o carregamento dos módulos termina."""
-        print("[GUI] Módulos carregados. Sistema pronto.")
+        """Slot executado quando todos os módulos terminam de carregar."""
+        print("[SPHERE] Módulos carregados. Sistema pronto.")
         self.state = "IDLE"
         self.input_box.setEnabled(True)
         self.input_box.setPlaceholderText("Comando...")
@@ -171,28 +100,17 @@ class AeonSphere(QMainWindow):
         try:
             self.io_handler.falar("Sistema online.")
         except Exception as e:
-            print(f"[GUI] Aviso: Falha ao falar 'Sistema online': {e}")
+            print(f"[SPHERE] Aviso: Falha ao falar 'Sistema online': {e}")
 
         self.show_response("Sistema pronto.")
         self.after(2000, self.response_label.hide)
         
-        # Ativa os módulos essenciais em threads separadas para não bloquear
-        print("[GUI] Ativando módulos de inicialização (Audição, Visão)...")
+        # Ativa os módulos de background
+        print("[SPHERE] Ativando módulos de inicialização (Audição)...")
         self.after(500, lambda: threading.Thread(target=self.process_command, args=("ativar escuta", True), daemon=True).start())
-        self.after(1000, lambda: threading.Thread(target=self.process_command, args=("ativar visão", True), daemon=True).start())
         
-        # Inicia o timer de sono
         self.after(1000, lambda: self.sleep_timer.start(120000))
 
-    def _force_finish_loading(self):
-        """Chamado pelo timer de segurança se o carregamento travar."""
-        if self.state == "LOADING":
-            print("[GUI] ⚠️ ALERTA: O carregamento de módulos excedeu o tempo limite.")
-            print("[GUI] Forçando abertura da interface (alguns módulos podem não ter carregado).")
-            self.on_modules_loaded()
-
-    # --- O RESTANTE DO CÓDIGO PERMANECE O MESMO DA VERSÃO FUNCIONAL ---
-    # (paintEvent, on_submit, process_command, etc.)
     def set_click_through(self, enable: bool):
         try:
             hwnd = int(self.winId())
@@ -256,29 +174,44 @@ class AeonSphere(QMainWindow):
 
     def on_submit(self):
         if not self.input_box.isEnabled(): return
-        txt = self.input_box.text();
+        txt = self.input_box.text()
         if not txt: return
         if txt.lower() == "sair": self.quit_app(); return
         self.input_box.clear(); self.state = "PROCESSING"; self.update(); self.response_label.hide()
         threading.Thread(target=self.process_command, args=(txt, False), daemon=True).start()
 
-    def process_in_background(self, txt): threading.Thread(target=self.process_command, args=(txt,), daemon=True).start()
     def wake_up(self): self.visual_mode = "ACTIVE"; self.sleep_timer.stop(); self.update()
     def go_to_sleep(self):
         if self.visual_mode == "STANDBY": return
         self.visual_mode = "STANDBY"; self.state = "IDLE"
-        try: audicao_mod = self.module_manager.get_module("Audicao");
-        except: pass
         self.update()
 
     def quit_app(self):
-        print("[GUI] Encerrando..."); self.io_handler.falar("Encerrando.")
+        print("[GUI] Encerrando Aeon...")
+        
+        # 1. Avisa os módulos para desligarem
         try:
-            audicao = self.module_manager.get_module("Audicao");
-            if audicao and hasattr(audicao, 'stop'): audicao.stop()
-        except: pass
-        if self.hotkey_listener: self.hotkey_listener.stop()
-        self.after(500, QApplication.instance().quit)
+            audicao_mod = self.module_manager.get_module("audicao")
+            if audicao_mod and hasattr(audicao_mod, 'stop'):
+                print("[GUI] Desligando módulo de audição...")
+                audicao_mod.stop()
+        except Exception as e:
+            print(f"[GUI] Erro ao parar módulo de audição: {e}")
+            
+        # 2. Para o listener de hotkey de forma segura
+        if self.hotkey_listener and self.hotkey_listener.is_alive():
+            print("[GUI] Parando listener de hotkey...")
+            self.hotkey_listener.stop()
+            # Não é ideal chamar join() na thread principal da GUI,
+            # mas o stop() do pynput geralmente é rápido.
+            # Se isso causar bloqueios, uma abordagem de sinal seria melhor.
+
+        # 3. Dá um feedback final sonoro
+        self.io_handler.falar("Encerrando.")
+        
+        # 4. Encerra a aplicação Qt
+        # O 'after' aqui agenda o quit para ocorrer após o processamento dos eventos atuais.
+        self.after(200, QApplication.instance().quit)
 
     def process_command(self, txt, silent=False):
         try:
@@ -293,7 +226,13 @@ class AeonSphere(QMainWindow):
             response = self.module_manager.route_command(txt)
             self.after(0, lambda: setattr(self, 'state', 'IDLE'))
             if not silent: self.after(0, self.show_response, response); self.io_handler.falar(response)
-        except Exception as e: self.after(0, self.show_response, f"Erro: {e}")
+        except Exception as e:
+            # Mesmo em modo silencioso, um erro deve ser reportado.
+            error_message = f"Erro em segundo plano: {e}"
+            print(f"[SPHERE][ERRO] {error_message}")
+            self.after(0, self.show_response, error_message)
+            # Garante que o estado de processamento seja resetado.
+            self.after(0, lambda: setattr(self, 'state', 'IDLE'))
 
     def show_response(self, text):
         display_text = text[:300] + "..." if len(text) > 300 else text; self.response_label.setText(display_text); self.response_label.show()

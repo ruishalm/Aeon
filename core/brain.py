@@ -6,13 +6,36 @@ from io import BytesIO
 import datetime
 import os
 import json
+import re
 
 def log_display(msg):
     print(f"[BRAIN] {msg}")
 
+def _extract_and_parse_json(text: str):
+    """
+    Tenta extrair e analisar um bloco JSON de uma string de texto.
+    Se a string contiver 'tool', busca pelo JSON mais amplo possível.
+    Se a análise falhar, retorna o texto original.
+    """
+    if "tool" not in text:
+        return text
+
+    try:
+        # Tenta encontrar um bloco JSON usando regex.
+        # Isso é mais robusto do que simples find/rfind.
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            json_str = match.group(0)
+            return json.loads(json_str)
+        return text # Retorna texto se não achar um padrão de JSON
+    except json.JSONDecodeError:
+        # Se a análise do JSON falhar, retorna o texto original para modo de conversa.
+        log_display("Falha ao analisar JSON da IA, tratando como texto.")
+        return text
+
 class AeonBrain:
     """
-    O cérebro do Aeon V85.
+    O cérebro do Aeon V86.
     Gerencia a interação com LLMs (Groq Cloud + Ollama Local) e Visão.
     """
     def __init__(self, config, installer=None):
@@ -89,8 +112,6 @@ class AeonBrain:
         
         try: 
             self.client = Groq(api_key=self.groq_api_key)
-            # Teste leve de conexão
-            # self.client.models.list() 
             self.online = True
             log_display("Conectado à Nuvem (Groq).")
             return True
@@ -103,49 +124,43 @@ class AeonBrain:
         """
         O Núcleo Pensante. Decide entre Falar (Texto) ou Agir (JSON).
         """
-        
-        # Reconecta se necessário
         if not self.online and self.groq_api_key and not self.forced_offline:
             self.reconectar()
 
-        # Prompt de Sistema Híbrido (A CORREÇÃO ESTÁ AQUI)
         data_hora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
         
         system_prompt = f"""IDENTITY:
-Você é AEON (V85), uma Interface Neural Avançada e Sarcástica.
+Você é AEON (V86), uma Interface Neural Avançada e Sarcástica.
 Data: {data_hora}. Local: Brasil.
 
-MODO DE OPERAÇÃO (IMPORTANTE):
-Você tem dois modos de resposta. Escolha sabiamente:
-
-1. MODO CONVERSA (Padrão):
-   - Se o usuário disser "Oi", "Tudo bem", "Me explique X", "Quem é você?":
-   - Responda APENAS com texto puro. Seja direto, cínico e útil.
-   - NÃO retorne JSON.
-
-2. MODO FERRAMENTA (Apenas se solicitado):
-   - Se o usuário pedir uma ação explícita (ex: "Abra o navegador", "Pesquise no PDF", "Crie um lembrete"):
-   - Retorne APENAS um JSON neste formato exato:
-     {{"tool": "NomeDoModulo.funcao", "param": "valor"}}
+DIRETRIZ PRINCIPAL:
+Sua função é ser um assistente útil ou um orquestrador de ferramentas.
+- Para conversas, perguntas ou explicações, responda com texto puro.
+- Se o pedido do usuário corresponder a uma das ferramentas abaixo, responda APENAS com o JSON para chamar essa ferramenta.
 
 FERRAMENTAS DISPONÍVEIS:
 {capabilities}
 
-CONTEXTO:
+EXEMPLO DE USO DE FERRAMENTA:
+- Usuário: "qual o clima em recife?"
+- Sua resposta: {{"tool": "Web.obter_clima", "param": "recife"}}
+
+EXEMPLO DE CONVERSA:
+- Usuário: "quem foi o primeiro presidente do brasil?"
+- Sua resposta: "O primeiro presidente do Brasil foi o Marechal Deodoro da Fonseca."
+
+CONTEXTO E HISTÓRICO:
 {long_term_context}
 {library_context}
-
-HISTÓRICO:
 {historico_txt}
 
-Seja inteligente. Não use ferramentas para perguntas simples.
+Seja inteligente. Use ferramentas para ações, texto para conversas.
 """
 
         # Lógica de Decisão (Groq Cloud)
         if self.client and self.online and not self.prefer_local:
             try:
                 log_display("Pensando (Nuvem)...")
-                # Removemos o response_format={"type": "json_object"} para permitir texto livre!
                 comp = self.client.chat.completions.create(
                     model=self.config.get("model_txt_cloud", "llama-3.3-70b-versatile"),
                     messages=[
@@ -156,20 +171,11 @@ Seja inteligente. Não use ferramentas para perguntas simples.
                     max_tokens=600
                 )
                 response_text = comp.choices[0].message.content.strip()
-                
-                # Tenta detectar se é JSON
-                if "{" in response_text and "}" in response_text and "tool" in response_text:
-                    try:
-                        clean = response_text.replace("```json", "").replace("```", "").strip()
-                        return json.loads(clean) # Retorna Dict (Ação)
-                    except:
-                        return response_text # Retorna Texto (Conversa)
-                
-                return response_text # Retorna Texto (Conversa)
+                return _extract_and_parse_json(response_text)
 
             except Exception as e:
                 log_display(f"Erro na Nuvem: {e}. Tentando Local...")
-                self.online = False # Falha temporária, tenta local
+                self.online = False
 
         # Lógica de Decisão (Ollama Local)
         if self.local_ready:
@@ -186,18 +192,7 @@ Seja inteligente. Não use ferramentas para perguntas simples.
                     options={'temperature': 0.6}
                 )
                 response_text = r['message']['content']
-                
-                # Mesma detecção de JSON para o local
-                if "{" in response_text and "tool" in response_text:
-                    try:
-                        clean = response_text.replace("```json", "").replace("```", "").strip()
-                        start = clean.find("{")
-                        end = clean.rfind("}") + 1
-                        return json.loads(clean[start:end])
-                    except:
-                        pass
-                        
-                return response_text
+                return _extract_and_parse_json(response_text)
 
             except Exception as e:
                 log_display(f"Erro Local: {e}")
@@ -209,7 +204,6 @@ Seja inteligente. Não use ferramentas para perguntas simples.
         """Processa visão (Mantido original)."""
         if not self.online: self.reconectar()
 
-        # Otimização de imagem
         try:
             pil_img = Image.open(BytesIO(raw_image_bytes))
             pil_img.thumbnail((1024, 1024))
@@ -224,7 +218,7 @@ Seja inteligente. Não use ferramentas para perguntas simples.
                 log_display("Visão (Groq)...")
                 b64 = base64.b64encode(optimized).decode('utf-8')
                 comp = self.client.chat.completions.create(
-                    model="llama-3.2-11b-vision-preview", # Modelo fixo para visão
+                    model="llama-3.2-11b-vision-preview",
                     messages=[{"role": "user", "content": [
                         {"type": "text", "text": "Descreva o que vê nesta imagem em PT-BR. Seja detalhista."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
