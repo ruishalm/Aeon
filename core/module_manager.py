@@ -53,7 +53,7 @@ class ModuleManager:
                         module_name = f"modules.{item.name}.{mod_file.stem}"
                         self._import_and_register(module_name)
                 except Exception as e:
-                    log_display(f"  ✗ Erro ao carregar '{item.name}': {e}")
+                    log_display(f"  ERRO Erro ao carregar '{item.name}': {e}")
 
         log_display(f"Módulos carregados: {len(self.modules)}")
 
@@ -62,7 +62,7 @@ class ModuleManager:
         try:
             if module_name in sys.modules:
                 module_import = importlib.reload(sys.modules[module_name])
-                log_display(f"  ↻ Módulo '{module_name}' recarregado (Hot Reload).")
+                log_display(f"  RECARREG Módulo '{module_name}' recarregado (Hot Reload).")
             else:
                 module_import = importlib.import_module(module_name)
             
@@ -70,7 +70,7 @@ class ModuleManager:
                 if inspect.isclass(obj) and issubclass(obj, AeonModule) and obj is not AeonModule:
                     module_instance = obj(self.core_context)
                     if not module_instance.check_dependencies():
-                        log_display(f"  ⚠ Dependências falharam para {module_instance.name}")
+                        log_display(f"  AVISO Dependências falharam para {module_instance.name}")
                         return
 
                     if module_instance.on_load():
@@ -78,7 +78,7 @@ class ModuleManager:
                         self.module_map[module_instance.name.lower()] = module_instance
                         for trigger in module_instance.triggers:
                             self.trigger_map[trigger.lower()] = module_instance
-                        log_display(f"  ✓ {module_instance.name} registrado.")
+                        log_display(f"  OK {module_instance.name} registrado.")
                     break
         except Exception as e:
             log_display(f"Erro importando {module_name}: {e}")
@@ -115,37 +115,37 @@ class ModuleManager:
 
         # 1. MODO FOCO
         if self.focused_module is not None:
-            log_display(f"🔒 FOCO: {self.focused_module.name}")
+            log_display(f"FOCO: {self.focused_module.name}")
             return self.focused_module.process(command) or ""
         
-        # 2. MODO LIVRE (Ordenado)
+        # 2. MODO LIVRE (Ordenado por comprimento de trigger)
         triggered = False
         sorted_triggers = sorted(self.trigger_map.items(), key=lambda x: len(x[0]), reverse=True)
 
         for trigger, module in sorted_triggers:
             if trigger in command_lower:
                 if not module.check_dependencies():
-                    return f"Erro: Dependência de {module.name} falhou."
+                    return f"Erro: Dependencia de {module.name} falhou."
                 
                 log_display(f"Trigger '{trigger}' acionou '{module.name}'")
                 response = module.process(command)
                 triggered = True
                 break 
 
-        # 3. FALLBACK (Brain)
+        # 3. Se nenhum trigger foi disparado, tenta o Brain como fallback inteligente
         if not triggered:
             brain = self.core_context.get("brain")
             if brain:
                 hist = self._format_history()
                 caps = self.get_capabilities_summary()
                 
-                # Recupera memórias de longo prazo relevantes para a pergunta atual
+                # Recupera memorias de longo prazo relevantes para a pergunta atual
                 long_term = ""
                 if self.vector_memory:
                     long_term = self.vector_memory.retrieve_relevant(command)
                 
-                # Chama brain.pensar com parâmetros compatíveis
-                # Tenta com novos parâmetros, senão usa os básicos
+                # Chama brain.pensar com parametros compativeis
+                # Tenta com novos parametros, senao usa os basicos
                 try:
                     ai_decision = brain.pensar(
                         prompt=command,
@@ -172,7 +172,7 @@ class ModuleManager:
                         try:
                             mod_name, func_name = tool.split(".")
                         except ValueError:
-                            response = "Erro: formato de ferramenta inválido"
+                            response = "Erro: formato de ferramenta invalido"
                         else:
                             mod = self.module_map.get(mod_name.lower())
                             if not mod:
@@ -190,19 +190,19 @@ class ModuleManager:
                     # String simples = conversa
                     response = str(ai_decision)
             else:
-                response = "Cérebro indisponível."
+                response = "Cerebro indisponivel."
 
-        # 4. MEMÓRIA (Thread-Safe)
+        # 4. MEMORIA (Thread-Safe)
         if response:
             with self.history_lock:
                 self.chat_history.append({"role": "user", "content": command})
                 self.chat_history.append({"role": "assistant", "content": response})
                 
-                # Salva a interação na memória de longo prazo (apenas se não for comando de módulo)
+                # Salva a interacao na memoria de longo prazo (apenas se nao for comando de modulo)
                 if self.vector_memory and not triggered:
                     self.vector_memory.store_interaction(command, response)
                 
-                # Garante que a lista não exceda o tamanho máximo
+                # Garante que a lista nao exceda o tamanho maximo
                 history_len = len(self.chat_history)
                 if history_len > self.max_history * 2:
                     self.chat_history = self.chat_history[history_len - self.max_history * 2:]

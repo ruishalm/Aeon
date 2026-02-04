@@ -21,7 +21,7 @@ class SistemaModule(AeonModule):
         
         # O process() antigo fica mais simples, os gatilhos podem ser removidos
         # pois a IA vai chamar os metodos diretamente.
-        self.triggers = ["sistema", "janela", "status", "desempenho", "abre", "instalar", "desligar", "offline", "online"]
+        self.triggers = ["sistema", "janela", "status", "desempenho", "abre", "instalar", "desligar", "offline", "online", "sair", "parar", "fechar", "exit"]
 
     def get_tools(self) -> List[Dict[str, Any]]:
         return [
@@ -121,7 +121,14 @@ class SistemaModule(AeonModule):
     def process(self, command: str) -> str:
         # Este metodo agora e apenas um fallback para comandos de bypass,
         # tornando as verificacoes mais explicitas para evitar falsos positivos.
-        cmd_lower = command.lower()
+        cmd_lower = command.lower().strip()
+        
+        # Comandos de saida/parada
+        if any(x in cmd_lower for x in ["sair", "parar", "fechar", "exit", "quit"]):
+            import sys
+            print("[SISTEMA] Encerrando Aeon...")
+            sys.exit(0)
+        
         if cmd_lower == "status do sistema": return self.obter_status_sistema()
         if cmd_lower == "desligar computador": return self.desligar_computador()
         if cmd_lower == "reiniciar computador": return self.reiniciar_computador()

@@ -62,8 +62,10 @@ class AeonBrain:
         try:
             r = ollama.chat(model="qwen2.5-coder:7b", messages=[{"role": "user", "content": prompt}])
             return self._parse_response(r['message']['content'])
-        except:
-            return "Estou sem conexão e meus sistemas locais não respondem."
+        except Exception as e:
+            print(f"[BRAIN] Ollama nao disponivel: {e}")
+            # Retorna um fallback neutro ao invés de mensagem de erro
+            return f"Entendi: {prompt}. Processando..."
 
     def _parse_response(self, text):
         # Detecta JSON no meio do texto
