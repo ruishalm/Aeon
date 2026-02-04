@@ -17,11 +17,12 @@ class SistemaModule(AeonModule):
         self.name = "Sistema"
         self.dependencies = []
         self.pending_action = None
+        self.waiting_exit_confirmation = False  # Flag para confirmar saida
         self.indexed_apps = self.indexar_programas()
         
         # O process() antigo fica mais simples, os gatilhos podem ser removidos
         # pois a IA vai chamar os metodos diretamente.
-        self.triggers = ["sistema", "janela", "status", "desempenho", "abre", "instalar", "desligar", "offline", "online", "sair", "parar", "fechar", "exit"]
+        self.triggers = ["sistema", "janela", "status", "desempenho", "abre", "instalar", "desligar", "offline", "online", "sair", "parar", "fechar", "exit", "quit", "listar modulos", "listar modulos", "modulos", "qual"]
 
     def get_tools(self) -> List[Dict[str, Any]]:
         return [
@@ -123,26 +124,38 @@ class SistemaModule(AeonModule):
         # tornando as verificacoes mais explicitas para evitar falsos positivos.
         cmd_lower = command.lower().strip()
         
-        # Comandos de saida/parada
+        # Confirmacao de saida
+        if self.waiting_exit_confirmation:
+            if any(x in cmd_lower for x in ["sim", "confirmo", "confirmar", "yes", "ok", "sair de verdade", "sair mesmo"]):
+                self.waiting_exit_confirmation = False
+                import threading
+                import sys
+                def exit_delayed():
+                    import time
+                    time.sleep(0.5)
+                    print("[SISTEMA] Encerrando...")
+                    sys.exit(0)
+                t = threading.Thread(target=exit_delayed, daemon=True)
+                t.start()
+                return "Até logo! Encerrando Aeon..."
+            else:
+                self.waiting_exit_confirmation = False
+                return "Saida cancelada. Continuamos aqui!"
+        
+        # Comandos de saida/parada - primeira vez pede confirmacao
         if any(x in cmd_lower for x in ["sair", "parar", "fechar", "exit", "quit"]):
-            # Retorna uma mensagem antes de encerrar
-            msg = "Até logo! Encerrando Aeon..."
-            # Programa a saida para daqui a 1 segundo para dar tempo de exibir a mensagem
-            import threading
-            import sys
-            def exit_delayed():
-                import time
-                time.sleep(1.5)
-                print("[SISTEMA] Encerrando...")
-                sys.exit(0)
-            t = threading.Thread(target=exit_delayed, daemon=True)
-            t.start()
-            return msg
+            self.waiting_exit_confirmation = True
+            return "Tem certeza que quer sair? (diga 'sim' para confirmar)"
+        
+        # Listar modulos disponiveis
+        if any(x in cmd_lower for x in ["listar modulos", "quais modulos", "modulos disponiveis", "que modulos", "quais sao os modulos"]):
+            return self.listar_modulos_disponiveis()
         
         if cmd_lower == "status do sistema": return self.obter_status_sistema()
         if cmd_lower == "desligar computador": return self.desligar_computador()
         if cmd_lower == "reiniciar computador": return self.reiniciar_computador()
         if cmd_lower == "ficar offline": return self.go_offline()
+
         if cmd_lower == "ficar online": return self.go_online()
         
         # Mantem o gatilho "abre" um pouco mais flexivel como exemplo de fallback
@@ -151,6 +164,23 @@ class SistemaModule(AeonModule):
             return self.abrir_aplicativo(app_name)
 
         return "" # Retorna vazio se nenhum comando de fallback exato for encontrado
+
+    def listar_modulos_disponiveis(self) -> str:
+        """Lista todos os modulos carregados e disponiveis."""
+        module_manager = self.core_context.get("module_manager")
+        if not module_manager:
+            return "Gerenciador de modulos nao disponivel."
+        
+        modulos = module_manager.get_loaded_modules()
+        if not modulos:
+            return "Nenhum modulo carregado."
+        
+        lista = "Modulos disponiveis:\n"
+        for mod in modulos:
+            triggers = ", ".join(mod.triggers[:3]) if mod.triggers else "sem triggers"
+            lista += f"- {mod.name}: {triggers}\n"
+        
+        return lista.strip()
 
     def go_offline(self) -> str:
         """Forca o cerebro a usar o modelo local."""
