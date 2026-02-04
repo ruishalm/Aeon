@@ -1,10 +1,10 @@
 """
-TypewriterModule (Datilógrafo)
+TypewriterModule (Datilografo)
 ==============================
 
-Permite digitar em qualquer aplicativo COM SUPORTE A ACENTUAÇÃO CORRETA.
+Permite digitar em qualquer aplicativo COM SUPORTE A ACENTUACAO CORRETA.
 
-Triggers: "modo ditado", "começar a ditar"
+Triggers: "modo ditado", "comecar a ditar"
 Comando de parada: "sistema parar"
 
 Como funciona:
@@ -13,7 +13,7 @@ Como funciona:
 3. Cada comando recebido: copia para clipboard + Ctrl+V
 4. "sistema parar": release_focus() e encerra
 
-Vantagem sobre TTS: funciona com acentuação perfeita, não depende de LLM
+Vantagem sobre TTS: funciona com acentuacao perfeita, nao depende de LLM
 """
 
 import pyperclip
@@ -26,14 +26,14 @@ from modules.base_module import AeonModule
 
 class TypewriterModule(AeonModule):
     """
-    Módulo para digitar em aplicativos com suporte a acentuação.
-    Usa lock_focus para garantir que APENAS este módulo processa comandos.
+    Modulo para digitar em aplicativos com suporte a acentuacao.
+    Usa lock_focus para garantir que APENAS este modulo processa comandos.
     """
     
     def __init__(self, core_context):
         super().__init__(core_context)
         self.name = "Digitador"
-        self.triggers = ["modo ditado", "começar a ditar", "digitar"]
+        self.triggers = ["modo ditado", "comecar a ditar", "digitar"]
         self.is_active = False
         self.pending_break = False
 
@@ -44,15 +44,15 @@ class TypewriterModule(AeonModule):
 
     @property
     def metadata(self) -> Dict[str, str]:
-        """Metadados do módulo."""
+        """Metadados do modulo."""
         return {
             "version": "1.0.0",
             "author": "Aeon Core",
-            "description": "Digita com acentuação correta usando clipboard + Ctrl+V"
+            "description": "Digita com acentuacao correta usando clipboard + Ctrl+V"
         }
 
     def on_load(self) -> bool:
-        """Inicializa o módulo."""
+        """Inicializa o modulo."""
         self.is_active = False
         self.pending_break = False
         return True
@@ -67,17 +67,17 @@ class TypewriterModule(AeonModule):
         """
         Processa comandos do Digitador.
         
-        Se já está em modo ativo:
-        - "sistema parar" → sai do modo
-        - Qualquer outro texto → digita
+        Se ja esta em modo ativo:
+        - "sistema parar" -> sai do modo
+        - Qualquer outro texto -> digita
         
-        Se não está ativo:
-        - "modo ditado" ou "começar a ditar" → ativa
+        Se nao esta ativo:
+        - "modo ditado" ou "comecar a ditar" -> ativa
         """
         
         command_lower = command.lower()
         
-        # ===== Se já está em modo ativo =====
+        # ===== Se ja esta em modo ativo =====
         if self.is_active:
             
             # Comando para parar
@@ -87,8 +87,8 @@ class TypewriterModule(AeonModule):
             # Qualquer outro comando = digita
             return self._type_text(command)
         
-        # ===== Se não está ativo, ativa primeiro =====
-        if "modo ditado" in command_lower or "começar a ditar" in command_lower or "digitar" in command_lower:
+        # ===== Se nao esta ativo, ativa primeiro =====
+        if "modo ditado" in command_lower or "comecar a ditar" in command_lower or "digitar" in command_lower:
             return self._start_typewriter()
         
         return ""
@@ -106,13 +106,13 @@ class TypewriterModule(AeonModule):
         if io_handler:
             io_handler.falar("Modo ditado ativado. Clique na janela alvo em 5 segundos.")
         
-        # Aguardar 5 segundos para o usuário clicar na janela
+        # Aguardar 5 segundos para o usuario clicar na janela
         time.sleep(5)
         
         if io_handler:
-            io_handler.falar("Pronto! Começando a digitar. Fale 'sistema parar' para sair.")
+            io_handler.falar("Pronto! Comecando a digitar. Fale 'sistema parar' para sair.")
         
-        return "✓ Modo ditado ativado! Pronto para digitar."
+        return "OK Modo ditado ativado! Pronto para digitar."
 
     def _stop_typewriter(self) -> str:
         """Desativa o modo ditado."""
@@ -127,7 +127,7 @@ class TypewriterModule(AeonModule):
         if io_handler:
             io_handler.falar("Modo ditado desativado. Voltando ao modo normal.")
         
-        return "✓ Modo ditado desativado."
+        return "OK Modo ditado desativado."
 
     def _type_text(self, text: str) -> str:
         """
@@ -137,16 +137,16 @@ class TypewriterModule(AeonModule):
         1. Copia texto para clipboard
         2. Aguarda 50ms (buffer)
         3. Pressiona Ctrl+V para colar
-        4. Adiciona espaço ao final (para separar palavras)
+        4. Adiciona espaco ao final (para separar palavras)
         """
         try:
-            # Remover "digitar" do início se necessário
+            # Remover "digitar" do inicio se necessario
             text = text.replace("digitar", "", 1).strip()
             
             if not text:
                 return ""
             
-            # Copiar para clipboard (com espaço ao final)
+            # Copiar para clipboard (com espaco ao final)
             pyperclip.copy(text + " ")
             
             # Pequeno delay (buffer)
@@ -155,10 +155,10 @@ class TypewriterModule(AeonModule):
             # Colar
             pyautogui.hotkey("ctrl", "v")
             
-            # Log visual (não fala, apenas retorna vazio para não confundir)
+            # Log visual (nao fala, apenas retorna vazio para nao confundir)
             print(f"[Digitador] Digitado: {text}")
             
-            return ""  # Retorna vazio para não ativar Brain
+            return ""  # Retorna vazio para nao ativar Brain
         
         except Exception as e:
             error_msg = f"Erro ao digitar: {e}"

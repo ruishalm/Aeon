@@ -27,10 +27,10 @@ class VectorMemory:
                 embedding_function=self.embed_fn
             )
             self.available = True
-            print("[VECTOR_MEM] ✓ VectorMemory inicializado com sucesso.")
+            print("[VECTOR_MEM] OK - VectorMemory inicializado com sucesso.")
         except Exception as e:
-            print(f"[VECTOR_MEM] ⚠ VectorMemory desabilitado: {e}")
-            print("[VECTOR_MEM] Sistema continua funcionando sem memória de longo prazo.")
+            print(f"[VECTOR_MEM] AVISO - VectorMemory desabilitado: {e}")
+            print("[VECTOR_MEM] Sistema continua funcionando sem memoria de longo prazo.")
             self.available = False
 
     def store_interaction(self, user_input, aeon_response):

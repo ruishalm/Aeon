@@ -5,7 +5,7 @@ import threading
 
 class RotinasModule(AeonModule):
     """
-    Módulo para criar, executar e listar rotinas (macros) de comandos.
+    Modulo para criar, executar e listar rotinas (macros) de comandos.
     """
     def __init__(self, core_context):
         super().__init__(core_context)
@@ -32,7 +32,7 @@ class RotinasModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Rotinas.iniciar_gravacao_rotina",
-                    "description": "Inicia a gravação de uma nova rotina (macro). Todos os comandos seguintes do usuário serão adicionados a esta rotina até que a gravação seja parada.",
+                    "description": "Inicia a gravacao de uma nova rotina (macro). Todos os comandos seguintes do usuario serao adicionados a esta rotina ate que a gravacao seja parada.",
                     "parameters": {
                         "type": "object",
                         "properties": {"nome_rotina": {"type": "string", "description": "O nome para a nova rotina. Ex: 'bom dia', 'setup de trabalho'"}},
@@ -44,7 +44,7 @@ class RotinasModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Rotinas.parar_gravacao_rotina",
-                    "description": "Para a gravação da rotina atual e a salva permanentemente.",
+                    "description": "Para a gravacao da rotina atual e a salva permanentemente.",
                     "parameters": {"type": "object", "properties": {}}
                 }
             },
@@ -71,13 +71,13 @@ class RotinasModule(AeonModule):
         ]
 
     def process(self, command: str) -> str:
-        """Processa comandos apenas quando uma gravação está ativa."""
+        """Processa comandos apenas quando uma gravacao esta ativa."""
         if self.recording_routine_name:
             if "parar" in command and "gravar" in command:
                 return self.parar_gravacao_rotina()
             else:
                 self.recorded_commands.append(command)
-                return f"Adicionado: '{command}' à rotina '{self.recording_routine_name}'."
+                return f"Adicionado: '{command}' a rotina '{self.recording_routine_name}'."
         return ""
 
     # --- FERRAMENTAS PARA A IA ---
@@ -87,12 +87,12 @@ class RotinasModule(AeonModule):
             return "Preciso de um nome para a rotina."
         self.recording_routine_name = nome_rotina
         self.recorded_commands = []
-        return f"Ok, gravando a rotina '{nome_rotina}'. Diga os comandos. Use 'parar gravação' quando terminar."
+        return f"Ok, gravando a rotina '{nome_rotina}'. Diga os comandos. Use 'parar gravacao' quando terminar."
 
     def parar_gravacao_rotina(self) -> str:
         config_manager = self.core_context.get("config_manager")
         if not self.recording_routine_name:
-            return "Nenhuma gravação estava em andamento."
+            return "Nenhuma gravacao estava em andamento."
 
         if self.recorded_commands:
             routines = config_manager.get_system_data("routines", {})
@@ -110,9 +110,9 @@ class RotinasModule(AeonModule):
         config_manager = self.core_context.get("config_manager")
         routines = config_manager.get_system_data("routines", {})
         if routines:
-            return f"Suas rotinas salvas são: {', '.join(routines.keys())}."
+            return f"Suas rotinas salvas sao: {', '.join(routines.keys())}."
         else:
-            return "Você ainda não tem nenhuma rotina salva."
+            return "Voce ainda nao tem nenhuma rotina salva."
 
     def executar_rotina(self, nome_rotina: str) -> str:
         config_manager = self.core_context.get("config_manager")
@@ -135,6 +135,6 @@ class RotinasModule(AeonModule):
                 io_handler.falar(f"Rotina '{nome_rotina}' finalizada.")
 
             threading.Thread(target=run_routine, daemon=True).start()
-            return f"Iniciando a execução da rotina '{nome_rotina}'."
+            return f"Iniciando a execucao da rotina '{nome_rotina}'."
         else:
-            return f"Não encontrei a rotina chamada '{nome_rotina}'."
+            return f"Nao encontrei a rotina chamada '{nome_rotina}'."

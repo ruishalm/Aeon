@@ -37,7 +37,7 @@ class ModuleManager:
             try:
                 self.vector_memory = VectorMemory(str(config_mgr.storage_path))
             except Exception as e:
-                log_display(f"⚠ Falha ao inicializar VectorMemory: {e}")
+                log_display(f"AVISO - Falha ao inicializar VectorMemory: {e}")
                 self.vector_memory = None
 
     def load_modules(self):

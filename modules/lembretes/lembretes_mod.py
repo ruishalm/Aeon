@@ -8,7 +8,7 @@ import time
 
 class LembreteModule(AeonModule):
     """
-    Módulo para gerenciar lembretes e tarefas com um loop de verificação ativo.
+    Modulo para gerenciar lembretes e tarefas com um loop de verificacao ativo.
     """
     def __init__(self, core_context):
         super().__init__(core_context)
@@ -39,8 +39,8 @@ class LembreteModule(AeonModule):
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "texto": {"type": "string", "description": "O conteúdo do lembrete. Ex: 'ligar para o cliente'"},
-                            "prazo": {"type": "string", "description": "A data e/ou hora do lembrete. Ex: 'amanhã às 15h', 'daqui a 30 minutos'"},
+                            "texto": {"type": "string", "description": "O conteudo do lembrete. Ex: 'ligar para o cliente'"},
+                            "prazo": {"type": "string", "description": "A data e/ou hora do lembrete. Ex: 'amanha as 15h', 'daqui a 30 minutos'"},
                             "prioridade": {"type": "string", "enum": ["alta", "normal", "baixa"], "description": "A prioridade da tarefa."}
                         },
                         "required": ["texto", "prazo"]
@@ -59,10 +59,10 @@ class LembreteModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Lembretes.marcar_como_concluido",
-                    "description": "Marca uma tarefa ou lembrete como concluído com base no seu texto.",
+                    "description": "Marca uma tarefa ou lembrete como concluido com base no seu texto.",
                     "parameters": {
                         "type": "object",
-                        "properties": { "texto_tarefa": {"type": "string", "description": "Parte do texto da tarefa a ser marcada como concluída."}},
+                        "properties": { "texto_tarefa": {"type": "string", "description": "Parte do texto da tarefa a ser marcada como concluida."}},
                         "required": ["texto_tarefa"]
                     }
                 }
@@ -110,8 +110,8 @@ class LembreteModule(AeonModule):
                 time.sleep(1)
 
     def process(self, command: str) -> str:
-        # O método process agora é apenas um fallback para o trigger "listar"
-        if "listar" in command or "quais são" in command:
+        # O metodo process agora e apenas um fallback para o trigger "listar"
+        if "listar" in command or "quais sao" in command:
             return self.listar_lembretes()
         return ""
 
@@ -122,7 +122,7 @@ class LembreteModule(AeonModule):
         try:
             deadline_local = dateparser.parse(prazo, languages=['pt'], settings={'TIMEZONE': 'local', 'RETURN_AS_TIMEZONE_AWARE': True})
             if not texto or not deadline_local:
-                raise ValueError("Texto ou prazo inválidos.")
+                raise ValueError("Texto ou prazo invalidos.")
 
             deadline_utc = deadline_local.astimezone(timezone.utc)
             
@@ -136,18 +136,18 @@ class LembreteModule(AeonModule):
                 "done": False
             }
             config_manager.add_task(task_data)
-            return f"Lembrete '{texto}' definido para {deadline_local.strftime('%d/%m/%Y às %H:%M')}."
+            return f"Lembrete '{texto}' definido para {deadline_local.strftime('%d/%m/%Y as %H:%M')}."
         except Exception as e:
-            return f"Não consegui criar o lembrete. Erro: {e}"
+            return f"Nao consegui criar o lembrete. Erro: {e}"
 
     def listar_lembretes(self) -> str:
         config_manager = self.core_context.get("config_manager")
         tasks = config_manager.get_tasks()
         active_tasks = [t for t in tasks if not t.get('done')]
         if not active_tasks:
-            return "Você não tem lembretes pendentes."
+            return "Voce nao tem lembretes pendentes."
 
-        response = "Suas tarefas pendentes são:\n"
+        response = "Suas tarefas pendentes sao:\n"
         sorted_tasks = sorted(active_tasks, key=lambda x: (-x.get('priority', 0), x['deadline']))
         now_local = datetime.now().astimezone()
 
@@ -169,5 +169,5 @@ class LembreteModule(AeonModule):
         
         if found:
             config_manager.save_tasks()
-            return f"Tarefa '{texto_tarefa}' marcada como concluída."
-        return f"Não encontrei a tarefa pendente '{texto_tarefa}'."
+            return f"Tarefa '{texto_tarefa}' marcada como concluida."
+        return f"Nao encontrei a tarefa pendente '{texto_tarefa}'."

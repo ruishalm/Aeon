@@ -7,8 +7,8 @@ from modules.base_module import AeonModule
 
 class ControleModule(AeonModule):
     """
-    Módulo para controlar o próprio Aeon:
-    - Conectar/reconectar ao serviço de nuvem
+    Modulo para controlar o proprio Aeon:
+    - Conectar/reconectar ao servico de nuvem
     - Instalar modelos offline (Ollama)
     - Recalibrar microfone
     """
@@ -18,30 +18,30 @@ class ControleModule(AeonModule):
         self.triggers = [
             "conectar", "online", "reconectar",
             "instalar offline", "baixar modelos", "instalar ollama",
-            "calibrar microfone", "ajustar áudio", "recalibrar",
-            "diagnóstico", "diagnostico", "verificar módulos", "verificar modulos"
+            "calibrar microfone", "ajustar audio", "recalibrar",
+            "diagnostico", "diagnostico", "verificar modulos", "verificar modulos"
         ]
 
     @property
     def dependencies(self) -> List[str]:
         """Controle depende de brain e io_handler."""
-        return []  # Dependências do core_context, não de módulos
+        return []  # Dependencias do core_context, nao de modulos
 
     @property
     def metadata(self) -> Dict[str, str]:
-        """Metadados do módulo."""
+        """Metadados do modulo."""
         return {
             "version": "2.0.0",
             "author": "Aeon Core",
-            "description": "Controla conexão com nuvem, instalação offline e calibração de áudio"
+            "description": "Controla conexao com nuvem, instalacao offline e calibracao de audio"
         }
 
     def on_load(self) -> bool:
-        """Inicializa o módulo - valida dependências."""
+        """Inicializa o modulo - valida dependencias."""
         brain = self.core_context.get("brain")
         io_handler = self.core_context.get("io_handler")
         if not brain or not io_handler:
-            print("[ControleModule] Erro: dependências não encontradas")
+            print("[ControleModule] Erro: dependencias nao encontradas")
             return False
         return True
 
@@ -50,47 +50,47 @@ class ControleModule(AeonModule):
         return True
 
     def process(self, command: str) -> str:
-        # O método process agora serve como um fallback ou para gatilhos diretos
-        # que não são chamados pela IA.
-        if "diagnóstico" in command or "diagnostico" in command or "verificar módulos" in command or "verificar modulos" in command:
+        # O metodo process agora serve como um fallback ou para gatilhos diretos
+        # que nao sao chamados pela IA.
+        if "diagnostico" in command or "diagnostico" in command or "verificar modulos" in command or "verificar modulos" in command:
             return self.diagnostico_modulos()
         if "conectar" in command or "online" in command or "reconectar" in command:
             return self.reconectar_nuvem()
         if "instalar offline" in command or "baixar modelos" in command or "instalar ollama" in command:
             return self.instalar_offline()
-        if "calibrar microfone" in command or "ajustar áudio" in command or "recalibrar" in command:
+        if "calibrar microfone" in command or "ajustar audio" in command or "recalibrar" in command:
             return self.recalibrar_microfone()
         return ""
 
-    # --- Métodos de Ferramentas para a IA ---
+    # --- Metodos de Ferramentas para a IA ---
 
     def diagnostico_modulos(self) -> str:
-        """Executa um diagnóstico dos módulos."""
+        """Executa um diagnostico dos modulos."""
         module_manager = self.core_context.get("module_manager")
         if module_manager and hasattr(module_manager, 'get_info'):
-            # Supondo que get_info de cada módulo retorne um dict com o status
+            # Supondo que get_info de cada modulo retorne um dict com o status
             all_info = [m.get_info() for m in module_manager.get_loaded_modules()]
-            report = "Diagnóstico dos Módulos:\n"
+            report = "Diagnostico dos Modulos:\n"
             for info in all_info:
                 status = "OK" if info.get('loaded') and info.get('dependencies_ok') else "FALHA"
                 report += f"- {info.get('name')}: {status}\n"
             return report
-        return "Não foi possível acessar o gerenciador de módulos para o diagnóstico."
+        return "Nao foi possivel acessar o gerenciador de modulos para o diagnostico."
 
     def reconectar_nuvem(self) -> str:
-        """Força a reconexão com o serviço de IA na nuvem."""
+        """Forca a reconexao com o servico de IA na nuvem."""
         brain = self.core_context.get("brain")
         if brain and hasattr(brain, 'reconectar'):
             return brain.reconectar()
-        return "Cérebro não encontrado ou não suporta reconexão."
+        return "Cerebro nao encontrado ou nao suporta reconexao."
 
     def recalibrar_microfone(self) -> str:
-        """Inicia o processo de recalibração do microfone."""
+        """Inicia o processo de recalibracao do microfone."""
         io_handler = self.core_context.get("io_handler")
         if io_handler and hasattr(io_handler, "recalibrar_mic"):
             io_handler.recalibrar_mic()
-            return "Entendido. Silêncio por 3 segundos para recalibração do microfone."
-        return "O handler de áudio não suporta recalibração."
+            return "Entendido. Silencio por 3 segundos para recalibracao do microfone."
+        return "O handler de audio nao suporta recalibracao."
 
     def instalar_offline(self) -> str:
         """Instala Ollama e baixa modelos de IA para uso offline."""
@@ -100,7 +100,7 @@ class ControleModule(AeonModule):
 
         def install_thread():
             if not shutil.which("ollama"):
-                if io_handler: io_handler.falar("Ollama não encontrado. Tentando instalar via winget...")
+                if io_handler: io_handler.falar("Ollama nao encontrado. Tentando instalar via winget...")
                 try:
                     subprocess.run(["winget", "install", "Ollama.Ollama"], check=True, capture_output=True, text=True)
                     if io_handler: io_handler.falar("Ollama instalado com sucesso.")
@@ -109,7 +109,7 @@ class ControleModule(AeonModule):
                     webbrowser.open("https://ollama.com/download")
                     return
 
-            if io_handler: io_handler.falar("Iniciando download dos modelos de IA offline. Isso pode demorar vários minutos.")
+            if io_handler: io_handler.falar("Iniciando download dos modelos de IA offline. Isso pode demorar varios minutos.")
             subprocess.Popen("ollama pull llama3")
             subprocess.Popen("ollama pull moondream")
 
@@ -118,9 +118,9 @@ class ControleModule(AeonModule):
             if io_handler: io_handler.falar("Modelos offline baixados. O Aeon agora pode funcionar sem internet.")
 
         threading.Thread(target=install_thread, daemon=True).start()
-        return "Iniciando processo de instalação e download em segundo plano. Avisarei quando terminar."
+        return "Iniciando processo de instalacao e download em segundo plano. Avisarei quando terminar."
 
-    # --- Declaração das Ferramentas para a IA ---
+    # --- Declaracao das Ferramentas para a IA ---
 
     def get_tools(self) -> List[Dict[str, any]]:
         return [
@@ -128,7 +128,7 @@ class ControleModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Controle.diagnostico_modulos",
-                    "description": "Verifica e reporta o status de todos os módulos carregados, informando se estão ativos e com as dependências resolvidas.",
+                    "description": "Verifica e reporta o status de todos os modulos carregados, informando se estao ativos e com as dependencias resolvidas.",
                     "parameters": {
                         "type": "object",
                         "properties": {},
@@ -140,7 +140,7 @@ class ControleModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Controle.reconectar_nuvem",
-                    "description": "Força uma nova tentativa de conexão com o serviço de Inteligência Artificial na nuvem (Groq). Útil se a conexão cair.",
+                    "description": "Forca uma nova tentativa de conexao com o servico de Inteligencia Artificial na nuvem (Groq). Util se a conexao cair.",
                     "parameters": {
                         "type": "object",
                         "properties": {},
@@ -152,7 +152,7 @@ class ControleModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Controle.recalibrar_microfone",
-                    "description": "Inicia o processo de recalibração do microfone para ajustar a sensibilidade ao ruído ambiente. Exige 3 segundos de silêncio.",
+                    "description": "Inicia o processo de recalibracao do microfone para ajustar a sensibilidade ao ruido ambiente. Exige 3 segundos de silencio.",
                     "parameters": {
                         "type": "object",
                         "properties": {},
@@ -164,7 +164,7 @@ class ControleModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Controle.instalar_offline",
-                    "description": "Inicia o processo de instalação do Ollama (se não estiver instalado) e o download dos modelos de IA 'llama3' e 'moondream' para permitir o funcionamento offline.",
+                    "description": "Inicia o processo de instalacao do Ollama (se nao estiver instalado) e o download dos modelos de IA 'llama3' e 'moondream' para permitir o funcionamento offline.",
                     "parameters": {
                         "type": "object",
                         "properties": {},

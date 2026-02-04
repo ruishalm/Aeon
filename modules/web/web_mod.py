@@ -6,24 +6,24 @@ from bs4 import BeautifulSoup
 import feedparser
 import re
 
-# Suposição: um logger será passado pelo core_context
+# Suposicao: um logger sera passado pelo core_context
 def log_display(msg):
     print(f"[WebMod] {msg}")
 
 class WebModule(AeonModule):
     """
-    Módulo para interagir com a web:
+    Modulo para interagir com a web:
     - Pesquisas gerais
     - Busca de clima
-    - Leitura de notícias RSS
+    - Leitura de noticias RSS
     - Resumo de URLs
     """
     def __init__(self, core_context):
         super().__init__(core_context)
         self.name = "Web"
         self.triggers = [
-            "pesquise por", "procure por", "o que é", "quem é",
-            "tempo", "clima", "notícias", "manchetes",
+            "pesquise por", "procure por", "o que e", "quem e",
+            "tempo", "clima", "noticias", "manchetes",
             "arquive o site", "http:", "https://", "www."
         ]
 
@@ -34,18 +34,18 @@ class WebModule(AeonModule):
 
     @property
     def metadata(self) -> Dict[str, str]:
-        """Metadados do módulo."""
+        """Metadados do modulo."""
         return {
             "version": "2.0.0",
             "author": "Aeon Core",
-            "description": "Interação com web: pesquisas, notícias, clima, resumos de URLs"
+            "description": "Interacao com web: pesquisas, noticias, clima, resumos de URLs"
         }
 
     def on_load(self) -> bool:
-        """Inicializa o módulo - valida acesso a brain."""
+        """Inicializa o modulo - valida acesso a brain."""
         brain = self.core_context.get("brain")
         if not brain:
-            print("[WebModule] Erro: brain não encontrado")
+            print("[WebModule] Erro: brain nao encontrado")
             return False
         return True
 
@@ -55,20 +55,20 @@ class WebModule(AeonModule):
 
     def process(self, command: str) -> str:
         brain = self.core_context.get("brain")
-        if not brain: return "Cérebro não encontrado."
+        if not brain: return "Cerebro nao encontrado."
 
         cmd_lower = command.lower()
 
-        # 1. Comando de arquivamento (mais específico)
+        # 1. Comando de arquivamento (mais especifico)
         if cmd_lower.startswith("arquive o site"):
             url = command.replace("arquive o site", "").strip()
             if not url.startswith("http"):
-                return "Por favor, forneça uma URL válida para arquivar."
+                return "Por favor, forneca uma URL valida para arquivar."
             
             log_display(f"Iniciando arquivamento do site: {url}")
             biblioteca = self.core_context.get("biblioteca")
             if not biblioteca:
-                return "Módulo Biblioteca não encontrado. Não posso arquivar."
+                return "Modulo Biblioteca nao encontrado. Nao posso arquivar."
             
             titulo, conteudo = self.web_search(url)
 
@@ -76,45 +76,45 @@ class WebModule(AeonModule):
                 return conteudo # Retorna a mensagem de erro
 
             if not conteudo:
-                return f"Não consegui extrair conteúdo do site {url}."
+                return f"Nao consegui extrair conteudo do site {url}."
 
             return biblioteca.arquivar_texto(titulo, conteudo)
 
         # 2. Pesquisa na Web
-        search_triggers = ["pesquise por", "procure por", "o que é", "quem é"]
+        search_triggers = ["pesquise por", "procure por", "o que e", "quem e"]
         if any(cmd_lower.startswith(t) for t in search_triggers):
             query = command
             for t in search_triggers:
                 query = query.replace(t, "", 1)
             query = query.strip()
             
-            _, contexto = self.web_search(query) # Ignoramos o título aqui
-            if not contexto: return "Não encontrei conteúdo para essa pesquisa."
+            _, contexto = self.web_search(query) # Ignoramos o titulo aqui
+            if not contexto: return "Nao encontrei conteudo para essa pesquisa."
             if "erro ao processar" in contexto: return contexto
             
-            prompt_final = f"Com base no seguinte texto, responda de forma concisa à pergunta: '{query}'\n\nTexto: {contexto}"
+            prompt_final = f"Com base no seguinte texto, responda de forma concisa a pergunta: '{query}'\n\nTexto: {contexto}"
             return brain.pensar(prompt_final)
 
-        # 3. Resumo de URL (genérico)
+        # 3. Resumo de URL (generico)
         if "http:" in cmd_lower or "https:" in cmd_lower or "www." in cmd_lower:
             match = re.search(r'(https?://[^\s]+)', cmd_lower)
             if match:
                 url = match.group(0)
-                _, contexto = self.web_search(url) # Ignoramos o título aqui
-                if not contexto: return f"Não consegui extrair conteúdo do site {url}."
+                _, contexto = self.web_search(url) # Ignoramos o titulo aqui
+                if not contexto: return f"Nao consegui extrair conteudo do site {url}."
                 if "erro ao processar" in contexto: return contexto
 
                 prompt_final = f"Resuma o seguinte texto de forma concisa:\n\n{contexto}"
                 return brain.pensar(prompt_final)
 
-        # 4. Outros comandos (Clima, Notícias)
+        # 4. Outros comandos (Clima, Noticias)
         if "tempo em" in cmd_lower or "clima em" in cmd_lower:
             cidade = cmd_lower.split(" em ")[-1].strip()
             return self.obter_clima(cidade)
-        elif "como está o tempo" in cmd_lower or "previsão do tempo" in cmd_lower:
+        elif "como esta o tempo" in cmd_lower or "previsao do tempo" in cmd_lower:
             return self.obter_clima()
 
-        if "notícias" in cmd_lower or "manchetes" in cmd_lower:
+        if "noticias" in cmd_lower or "manchetes" in cmd_lower:
             fonte = "G1"
             for f in self.rss_feeds.keys():
                 if f.lower() in cmd_lower:
@@ -125,7 +125,7 @@ class WebModule(AeonModule):
         return ""
 
     def web_search(self, query: str) -> (str, str):
-        """Busca uma query ou extrai título e conteúdo de uma URL. Retorna (título, conteúdo)."""
+        """Busca uma query ou extrai titulo e conteudo de uma URL. Retorna (titulo, conteudo)."""
         log_display(f"Processando Web: {query[:60]}")
         try:
             url = query if query.startswith("http") else list(search(query, num_results=1, lang="pt"))[0]
@@ -136,10 +136,10 @@ class WebModule(AeonModule):
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Extrai o título
-            title = soup.find('title').get_text() if soup.find('title') else "Sem Título"
+            # Extrai o titulo
+            title = soup.find('title').get_text() if soup.find('title') else "Sem Titulo"
             
-            # Limpa o conteúdo
+            # Limpa o conteudo
             for tag in ['nav', 'footer', 'aside', 'script', 'style', 'header', 'form']:
                 for s in soup(tag):
                     s.decompose()
@@ -147,12 +147,12 @@ class WebModule(AeonModule):
             # Pega o texto de tags relevantes, como 'p', 'article', 'h1', 'h2', 'h3'
             text_blocks = [p.get_text() for p in soup.find_all(['p', 'h1', 'h2', 'h3', 'article'])]
             text_content = ' '.join(text_blocks)
-            text_content = re.sub(r'\s+', ' ', text_content).strip() # Limpa espaços em branco
+            text_content = re.sub(r'\s+', ' ', text_content).strip() # Limpa espacos em branco
             
             return title.strip(), text_content[:8000] # Limite maior para arquivamento
             
         except Exception as e:
-            error_msg = f"Ocorreu um erro ao processar a requisição web: {e}"
+            error_msg = f"Ocorreu um erro ao processar a requisicao web: {e}"
             log_display(error_msg)
             return "Erro", error_msg
 
@@ -170,18 +170,18 @@ class WebModule(AeonModule):
             sensacao = condicao_atual['FeelsLikeC']
             descricao = condicao_atual['lang_pt'][0]['value']
             
-            return f"O tempo em {data['nearest_area'][0]['areaName'][0]['value']} é: {descricao}, {temp} graus com sensação de {sensacao}."
+            return f"O tempo em {data['nearest_area'][0]['areaName'][0]['value']} e: {descricao}, {temp} graus com sensacao de {sensacao}."
         except Exception as e:
-            return "Não consegui verificar o tempo."
+            return "Nao consegui verificar o tempo."
 
     def obter_noticias(self, fonte: str = "G1") -> str:
         url_rss = self.rss_feeds.get(fonte.upper())
         if not url_rss:
-            return f"Fonte de notícias '{fonte}' não encontrada."
+            return f"Fonte de noticias '{fonte}' nao encontrada."
 
         try:
             feed = feedparser.parse(url_rss)
             manchetes = "; ".join(entry.title for entry in feed.entries[:3])
-            return f"As manchetes do {fonte} são: {manchetes}"
+            return f"As manchetes do {fonte} sao: {manchetes}"
         except Exception as e:
-            return "Tive um problema ao buscar as notícias."
+            return "Tive um problema ao buscar as noticias."

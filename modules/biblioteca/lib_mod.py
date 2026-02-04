@@ -26,7 +26,7 @@ def log_display(msg):
 
 class BibliotecaModule(AeonModule):
     """
-    Módulo para gerenciar e pesquisar na biblioteca de conhecimento local do Aeon.
+    Modulo para gerenciar e pesquisar na biblioteca de conhecimento local do Aeon.
     """
     def __init__(self, core_context):
         super().__init__(core_context)
@@ -47,11 +47,11 @@ class BibliotecaModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Biblioteca.pesquisar_livros",
-                    "description": "Pesquisa um tópico ou termo em todos os livros da biblioteca e retorna trechos relevantes.",
+                    "description": "Pesquisa um topico ou termo em todos os livros da biblioteca e retorna trechos relevantes.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "query": { "type": "string", "description": "O tópico, termo ou pergunta a ser pesquisado." }
+                            "query": { "type": "string", "description": "O topico, termo ou pergunta a ser pesquisado." }
                         },
                         "required": ["query"]
                     }
@@ -61,7 +61,7 @@ class BibliotecaModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Biblioteca.listar_livros",
-                    "description": "Retorna uma lista com os títulos de todos os livros disponíveis na Estante.",
+                    "description": "Retorna uma lista com os titulos de todos os livros disponiveis na Estante.",
                     "parameters": {"type": "object", "properties": {}}
                 }
             },
@@ -69,11 +69,11 @@ class BibliotecaModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Biblioteca.baixar_livro",
-                    "description": "Busca e baixa um livro do Projeto Gutenberg (em inglês) e o salva na biblioteca.",
+                    "description": "Busca e baixa um livro do Projeto Gutenberg (em ingles) e o salva na biblioteca.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "titulo": { "type": "string", "description": "O título do livro a ser baixado." }
+                            "titulo": { "type": "string", "description": "O titulo do livro a ser baixado." }
                         },
                         "required": ["titulo"]
                     }
@@ -83,12 +83,12 @@ class BibliotecaModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Biblioteca.apagar_livro",
-                    "description": "Apaga um livro da 'gaveta' (livros não processados) ou da 'estante' (biblioteca principal).",
+                    "description": "Apaga um livro da 'gaveta' (livros nao processados) ou da 'estante' (biblioteca principal).",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "nome_livro": { "type": "string", "description": "O título ou nome do arquivo do livro a ser apagado." },
-                            "local": { "type": "string", "enum": ["gaveta", "estante"], "description": "O local de onde apagar o livro. Padrão: 'estante'." }
+                            "nome_livro": { "type": "string", "description": "O titulo ou nome do arquivo do livro a ser apagado." },
+                            "local": { "type": "string", "enum": ["gaveta", "estante"], "description": "O local de onde apagar o livro. Padrao: 'estante'." }
                         },
                         "required": ["nome_livro"]
                     }
@@ -98,22 +98,22 @@ class BibliotecaModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Biblioteca.extrair_textos_gaveta",
-                    "description": "Processa todos os arquivos da 'gaveta' (área de entrada) e os move para a 'estante' (biblioteca principal).",
+                    "description": "Processa todos os arquivos da 'gaveta' (area de entrada) e os move para a 'estante' (biblioteca principal).",
                     "parameters": {"type": "object", "properties": {}}
                 }
             }
         ]
 
     def process(self, command: str) -> str:
-        # A lógica principal agora é feita pela IA.
-        # Este método serve como fallback para comandos de bypass.
+        # A logica principal agora e feita pela IA.
+        # Este metodo serve como fallback para comandos de bypass.
         if "listar" in command:
             return self.listar_livros()
         if "processar" in command or "organizar" in command:
             return self.extrair_textos_gaveta()
-        return "Módulo Biblioteca ativo. A IA agora pode usar minhas ferramentas para pesquisar, listar, baixar ou apagar livros."
+        return "Modulo Biblioteca ativo. A IA agora pode usar minhas ferramentas para pesquisar, listar, baixar ou apagar livros."
 
-    # --- MÉTODOS DE FERRAMENTA (Usados pela IA) ---
+    # --- METODOS DE FERRAMENTA (Usados pela IA) ---
 
     def pesquisar_livros(self, query: str, max_results: int = 5) -> str:
         log_display(f"Pesquisando livros por: '{query}'")
@@ -133,14 +133,14 @@ class BibliotecaModule(AeonModule):
             except Exception as e:
                 log_display(f"Erro ao ler o livro {book_file.name}: {e}")
 
-        if not found_snippets: return f"Não encontrei nada sobre '{query}' na minha biblioteca."
+        if not found_snippets: return f"Nao encontrei nada sobre '{query}' na minha biblioteca."
             
         log_display(f"Encontrados {len(found_snippets)} trechos relevantes.")
         return "Encontrei os seguintes trechos relevantes na biblioteca:\n\n" + "\n\n".join(found_snippets)
 
     def listar_livros(self) -> str:
         livros = [p.stem for p in self.estante_path.glob("*.txt")]
-        return "Os livros na sua biblioteca são: " + ", ".join(livros) if livros else "Sua biblioteca está vazia."
+        return "Os livros na sua biblioteca sao: " + ", ".join(livros) if livros else "Sua biblioteca esta vazia."
 
     def baixar_livro(self, titulo: str) -> str:
         io_handler = self.core_context.get("io_handler")
@@ -150,9 +150,9 @@ class BibliotecaModule(AeonModule):
     def apagar_livro(self, nome_livro: str, local: str = "estante") -> str:
         path = self.estante_path if local == "estante" else self.gaveta_path
         
-        target_file = next(path.glob(f"{nome_livro}*"), None) # Busca flexível
+        target_file = next(path.glob(f"{nome_livro}*"), None) # Busca flexivel
         if not target_file or not target_file.exists():
-            return f"Não encontrei o livro '{nome_livro}' em '{local}'."
+            return f"Nao encontrei o livro '{nome_livro}' em '{local}'."
         
         try:
             nome_real = target_file.name
@@ -164,7 +164,7 @@ class BibliotecaModule(AeonModule):
 
     def extrair_textos_gaveta(self) -> str:
         processed, errors = 0, 0
-        log_display("Iniciando extração de textos da Gaveta para a Estante...")
+        log_display("Iniciando extracao de textos da Gaveta para a Estante...")
         for file_path in self.gaveta_path.glob("*"):
             if file_path.is_file() and file_path.suffix.lower() == ".txt":
                 try:
@@ -174,9 +174,9 @@ class BibliotecaModule(AeonModule):
                     log_display(f"Erro ao mover {file_path.name}: {e}")
                     errors += 1
         self._update_context()
-        return f"Processamento concluído. {processed} livros movidos para a Estante. {errors} erros."
+        return f"Processamento concluido. {processed} livros movidos para a Estante. {errors} erros."
 
-    # --- MÉTODOS DE SUPORTE (Não expostos como ferramentas) ---
+    # --- METODOS DE SUPORTE (Nao expostos como ferramentas) ---
 
     def _update_context(self):
         ctx = self.core_context.get("context")
@@ -189,7 +189,7 @@ class BibliotecaModule(AeonModule):
             from googlesearch import search
             import requests
         except ImportError:
-            io_handler.falar("Erro: Dependências de internet não estão instaladas para baixar livros.")
+            io_handler.falar("Erro: Dependencias de internet nao estao instaladas para baixar livros.")
             return
 
         try:
@@ -198,7 +198,7 @@ class BibliotecaModule(AeonModule):
             urls = list(search(query, num_results=1, lang="en"))
             
             if not urls:
-                io_handler.falar(f"Não encontrei o livro '{titulo}' no Projeto Gutenberg.")
+                io_handler.falar(f"Nao encontrei o livro '{titulo}' no Projeto Gutenberg.")
                 return
             
             url = urls[0]
@@ -213,12 +213,12 @@ class BibliotecaModule(AeonModule):
             file_path.write_text(book_content, encoding='utf-8')
                 
             self._update_context()
-            io_handler.falar(f"O livro '{titulo}' foi baixado e salvo na sua gaveta. Diga 'processar livros' para movê-lo para a estante.")
+            io_handler.falar(f"O livro '{titulo}' foi baixado e salvo na sua gaveta. Diga 'processar livros' para move-lo para a estante.")
         except Exception as e:
             log_display(f"Erro ao baixar livro: {e}")
             io_handler.falar(f"Ocorreu um erro ao tentar baixar o livro.")
     
-    # Funções antigas mantidas para referência ou uso interno, mas não como ferramentas primárias
+    # Funcoes antigas mantidas para referencia ou uso interno, mas nao como ferramentas primarias
     def get_available_books(self) -> List[str]:
         return [p.stem for p in self.estante_path.glob("*.txt")]
 

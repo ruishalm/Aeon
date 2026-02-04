@@ -17,6 +17,15 @@ class STTModule(AeonModule):
         # None = não verificado, True = advanced engine disponível, False = não disponível
         self.drivers_ok = None
 
+    def on_load(self) -> bool:
+        """Inicia o sistema de audição assim que o módulo carrega."""
+        print("[AUDICAO] Iniciando sistema de audição...")
+        self.listening = True
+        # Inicia a thread de escuta em background
+        threading.Thread(target=self._start_engine, daemon=True).start()
+        print("[AUDICAO] Sistema de audição ativado.")
+        return True
+
     def process(self, command: str) -> str:
         cmd = command.lower()
         
@@ -50,14 +59,14 @@ class STTModule(AeonModule):
             from faster_whisper import WhisperModel
             # --------------------------
             self.drivers_ok = True
-            print("[AUDICAO] Drivers de áudio verificados com sucesso.")
+            print("[AUDICAO] Drivers de audio verificados com sucesso.")
             return True
         except ImportError as e:
-            print(f"[AUDICAO] ⚠️ AVISO: driver de áudio avançado faltando. Erro: {e}")
+            print(f"[AUDICAO] AVISO: driver de audio avancado faltando. Erro: {e}")
             self.drivers_ok = False
             return False
         except Exception as e:
-            print(f"[AUDICAO] ⚠️ AVISO: Falha crítica na DLL do PyTorch. (WinError 1114). {e}")
+            print(f"[AUDICAO] AVISO: Falha critica na DLL do PyTorch. (WinError 1114). {e}")
             self.drivers_ok = False
             return False
 
@@ -93,17 +102,22 @@ class STTModule(AeonModule):
         gui = self.core_context.get("gui")
         if gui: gui.set_status("OUVINDO...")
         
+        print(f"[AUDICAO] Iniciando loop de escuta (fallback={fallback})")
+        
         while self.listening:
             try:
                 with sr.Microphone(sample_rate=16000) as source:
                     try:
+                        print("[AUDICAO] Aguardando áudio do microfone...")
                         audio = self.recognizer.listen(source, timeout=2, phrase_time_limit=10)
                     except sr.WaitTimeoutError:
+                        print("[AUDICAO] Timeout - sem áudio detectado")
                         continue 
 
                     if not self.listening: break
 
                     if gui: gui.set_status("PROCESSANDO...")
+                    print("[AUDICAO] Áudio capturado, processando...")
                     
                     if not fallback and self.model is not None:
                         raw_data = audio.get_raw_data()
@@ -113,24 +127,35 @@ class STTModule(AeonModule):
                             vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500)
                         )
                         texto_final = " ".join([s.text for s in segments]).strip()
+                        print(f"[AUDICAO] Transcrito (Whisper): {texto_final}")
                     else:
                         # Fallback para Google Speech Recognition (requer internet) — mais leve
                         try:
+                            print("[AUDICAO] Usando Google Speech Recognition...")
                             texto_final = self.recognizer.recognize_google(audio, language="pt-BR")
+                            print(f"[AUDICAO] Transcrito (Google): {texto_final}")
                         except sr.UnknownValueError:
+                            print("[AUDICAO] Não consegui entender o áudio (UnknownValue)")
+                            texto_final = ""
+                        except sr.RequestError as e:
+                            print(f"[AUDICAO] Erro na requisição (sem internet?): {e}")
                             texto_final = ""
                         except Exception as e:
-                            print(f"[AUDIÇÃO] Erro no reconhecimento fallback: {e}")
+                            print(f"[AUDICAO] Erro no reconhecimento fallback: {e}")
                             texto_final = ""
                     
                     if texto_final:
+                        print(f"[AUDICAO] Enviando para GUI: '{texto_final}'")
                         if gui: gui.logic_callback(texto_final)
                         
                         if any(x in texto_final.lower() for x in ["parar", "chega", "dormir"]):
                             self.listening = False
+                    else:
+                        print("[AUDICAO] Texto vazio após transcrição")
             except Exception as e:
                 # Evita crashar se o microfone for desconectado, etc.
-                print(f"[AUDIÇÃO] Erro no loop de escuta: {e}")
+                print(f"[AUDICAO] Erro no loop de escuta: {e}")
                 time.sleep(2)
         
+        print("[AUDICAO] Loop de escuta finalizado")
         if gui: gui.set_status("ONLINE")

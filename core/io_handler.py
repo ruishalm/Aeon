@@ -9,6 +9,13 @@ import edge_tts
 import pyttsx3
 import soundfile as sf
 
+# Para converter MP3 para WAV
+try:
+    from pydub import AudioSegment
+    PYDUB_AVAILABLE = True
+except ImportError:
+    PYDUB_AVAILABLE = False
+
 # --- REMOVI O IMPORT DO TOPO PARA NÃO TRAVAR SE FALTAR DLL ---
 # from kokoro_onnx import Kokoro 
 
@@ -67,15 +74,37 @@ class IOHandler:
             self.kokoro_failed = True
 
     def _tocar_audio(self, arquivo: str):
+        # Se for MP3, tenta converter para WAV primeiro
+        if arquivo.endswith('.mp3'):
+            arquivo_wav = arquivo.replace('.mp3', '.wav')
+            if PYDUB_AVAILABLE:
+                try:
+                    som_mp3 = AudioSegment.from_mp3(arquivo)
+                    som_mp3.export(arquivo_wav, format="wav")
+                    arquivo = arquivo_wav
+                    log_display(f"Convertido MP3 para WAV: {arquivo}")
+                except Exception as e:
+                    log_display(f"Falha ao converter MP3: {e}. Tentando tocar MP3 direto...")
+            else:
+                log_display("[AVISO] pydub não instalado. Tentando pygame.mixer.music...")
+        
         with self.audio_lock:
             try:
+                # Tenta carregar usando pygame.mixer.music (suporta MP3, WAV, OGG)
                 if pygame.mixer.music.get_busy():
                     pygame.mixer.music.stop()
                 pygame.mixer.music.load(arquivo)
                 pygame.mixer.music.play()
-            except Exception as e:
-                log_display(f"Erro playback: {e}")
-                return
+                log_display(f"[IO_HANDLER] Tocando: {arquivo}")
+            except pygame.error as e:
+                # Se falhar com music, tenta com Sound (mais flexível)
+                log_display(f"Erro com music.load(), tentando Sound.play(): {e}")
+                try:
+                    som = pygame.mixer.Sound(arquivo)
+                    som.play()
+                except Exception as e2:
+                    log_display(f"Erro playback final: {e2}")
+                    return
 
         # Espera tocar sem travar a thread principal
         while pygame.mixer.music.get_busy():

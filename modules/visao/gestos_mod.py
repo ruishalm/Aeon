@@ -27,14 +27,14 @@ HAND_CONNECTIONS = [
 
 class GestosModule(AeonModule):
     """
-    Módulo de Visão Computacional para controle do Aeon via gestos.
+    Modulo de Visao Computacional para controle do Aeon via gestos.
     """
     def __init__(self, core_context):
         super().__init__(core_context)
         self.name = "Gestos"
         self.triggers = [
             "ativar gestos", "ligar gestos", "parar gestos", "desligar gestos",
-            "modo gestos", "testar câmera", "desligar câmera"
+            "modo gestos", "testar camera", "desligar camera"
         ]
         self.dependencies = ["gui", "io_handler", "installer"]
 
@@ -57,16 +57,16 @@ class GestosModule(AeonModule):
 
     def check_dependencies(self):
         if not GEAR_AVAILABLE:
-            print("[GEAR] Aviso: 'opencv-python' ou 'mediapipe' não instalados. Módulo de gestos desativado.")
+            print("[GEAR] Aviso: 'opencv-python' ou 'mediapipe' nao instalados. Modulo de gestos desativado.")
         return super().check_dependencies()
 
     def on_load(self) -> bool:
-        """Verifica as dependências críticas no momento do carregamento."""
+        """Verifica as dependencias criticas no momento do carregamento."""
         if not GEAR_AVAILABLE:
-            print("[GEAR][ERRO] 'opencv-python' ou 'mediapipe' não instalados. Módulo de gestos desativado.")
+            print("[GEAR][ERRO] 'opencv-python' ou 'mediapipe' nao instalados. Modulo de gestos desativado.")
             return False
         
-        # Se o modelo não existir, tenta baixá-lo agora.
+        # Se o modelo nao existir, tenta baixa-lo agora.
         if not os.path.exists(self.model_path) or os.path.getsize(self.model_path) < 1000:
             print(f"[GEAR] Modelo de gestos '{os.path.basename(self.model_path)}' ausente. Baixando...")
             installer = self.core_context.get("installer")
@@ -74,43 +74,43 @@ class GestosModule(AeonModule):
                 url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
                 success = installer.download_file(url, self.model_path)
                 if not success:
-                    print(f"[GEAR][ERRO] Falha ao baixar o modelo de gestos. Módulo desativado.")
+                    print(f"[GEAR][ERRO] Falha ao baixar o modelo de gestos. Modulo desativado.")
                     return False
             else:
-                print("[GEAR][ERRO] Installer não disponível para baixar o modelo. Módulo desativado.")
+                print("[GEAR][ERRO] Installer nao disponivel para baixar o modelo. Modulo desativado.")
                 return False
         
-        print("[GEAR] Dependências e modelo de gestos verificados com sucesso.")
+        print("[GEAR] Dependencias e modelo de gestos verificados com sucesso.")
         return True
 
     def process(self, command: str) -> str:
         cmd = command.lower()
 
-        commands_start = ["modo gestos", "ativar gestos", "ligar gestos", "testar câmera"]
-        commands_stop = ["parar gestos", "desligar gestos", "desligar câmera"]
+        commands_start = ["modo gestos", "ativar gestos", "ligar gestos", "testar camera"]
+        commands_stop = ["parar gestos", "desligar gestos", "desligar camera"]
         
         if any(c in cmd for c in commands_start):
             if not GEAR_AVAILABLE:
-                return "O modo de gestos está desativado. Instale 'opencv-python' e 'mediapipe'."
+                return "O modo de gestos esta desativado. Instale 'opencv-python' e 'mediapipe'."
             if self.running:
-                return "A visão de gestos já está operando."
+                return "A visao de gestos ja esta operando."
             
-            is_debug = "testar câmera" in cmd
+            is_debug = "testar camera" in cmd
             self.start_gesture_vision(debug=is_debug)
-            return "Visão de gestos iniciada." if not is_debug else "Modo de teste de câmera ativado."
+            return "Visao de gestos iniciada." if not is_debug else "Modo de teste de camera ativado."
 
         if any(c in cmd for c in commands_stop):
             if not self.running:
-                return "A visão de gestos não está ativa."
+                return "A visao de gestos nao esta ativa."
             self.stop_gesture_vision()
-            return "Visão de gestos encerrada."
+            return "Visao de gestos encerrada."
 
         return "" # Nenhum comando correspondente
 
     def _initialize_detector(self):
-        """Inicializa o detector de mãos do MediaPipe, baixando o modelo se necessário."""
+        """Inicializa o detector de maos do MediaPipe, baixando o modelo se necessario."""
         if not os.path.exists(self.model_path) or os.path.getsize(self.model_path) < 1000:
-            print(f"[GEAR] Modelo de gestos ausente ou inválido. Baixando...")
+            print(f"[GEAR] Modelo de gestos ausente ou invalido. Baixando...")
             if os.path.exists(self.model_path):
                 os.remove(self.model_path)
                 
@@ -143,13 +143,13 @@ class GestosModule(AeonModule):
 
     def start_gesture_vision(self, debug=False):
         if self.detector is None:
-            print("[GEAR] Primeira execução, inicializando o detector de gestos...")
+            print("[GEAR] Primeira execucao, inicializando o detector de gestos...")
             self._initialize_detector()
 
         if not self.detector:
-            print("[GEAR][ERRO] Detector de gestos não inicializado. Não é possível iniciar a visão.")
+            print("[GEAR][ERRO] Detector de gestos nao inicializado. Nao e possivel iniciar a visao.")
             io = self.core_context.get("io_handler")
-            if io: io.falar("Desculpe, não consegui iniciar o motor de gestos.")
+            if io: io.falar("Desculpe, nao consegui iniciar o motor de gestos.")
             return
 
         self.running = True
@@ -172,10 +172,10 @@ class GestosModule(AeonModule):
         if not self.cap.isOpened():
             self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
-            print("[GEAR][ERRO] Não foi possível acessar a câmera.")
+            print("[GEAR][ERRO] Nao foi possivel acessar a camera.")
             self.running = False
             io = self.core_context.get("io_handler")
-            if io: io.falar("Erro crítico: não consegui acessar sua câmera.")
+            if io: io.falar("Erro critico: nao consegui acessar sua camera.")
             return
         
         while self.running and self.cap.isOpened():
@@ -287,7 +287,7 @@ class GestosModule(AeonModule):
     def _executar_acao(self, gesto):
         io = self.core_context.get("io_handler")
         gui = self.core_context.get("gui")
-        print(f"[GEAR] Gesto '{gesto}' detectado, executando ação.")
+        print(f"[GEAR] Gesto '{gesto}' detectado, executando acao.")
         self.action_cooldown_end_time = time.time() + self.ACTION_COOLDOWN_PERIOD
 
         if gesto == "ABRIR_PAINEL":
@@ -299,11 +299,11 @@ class GestosModule(AeonModule):
         actions = {
             "XIU": lambda: io.calar_boca() if io else None,
             "AGARRAR": lambda: gui.set_click_through(False) if hasattr(gui, 'set_click_through') else None,
-            "VITORIA": lambda: gui.process_command("modo visível") if hasattr(gui, 'process_command') else None,
+            "VITORIA": lambda: gui.process_command("modo visivel") if hasattr(gui, 'process_command') else None,
             "FECHA": lambda: gui.go_to_sleep() if hasattr(gui, 'go_to_sleep') else None,
             "ABRE": lambda: gui.wake_up() if hasattr(gui, 'wake_up') else None,
             "SAIR": lambda: gui.quit_app() if hasattr(gui, 'quit_app') else os._exit(0),
-            "MODO_INVISIVEL": lambda: gui.process_command("modo invisível") if hasattr(gui, 'process_command') else None,
+            "MODO_INVISIVEL": lambda: gui.process_command("modo invisivel") if hasattr(gui, 'process_command') else None,
         }
         if gesto in actions:
             gui.after(0, actions[gesto])

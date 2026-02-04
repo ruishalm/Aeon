@@ -8,35 +8,35 @@ from modules.base_module import AeonModule
 
 class MidiaModule(AeonModule):
     """
-    Módulo para controlar a reprodução de mídia e o Spotify.
+    Modulo para controlar a reproducao de midia e o Spotify.
     """
     def __init__(self, core_context):
         super().__init__(core_context)
-        self.name = "Mídia"
-        # Gatilhos gerais de mídia e gatilhos específicos do Spotify
+        self.name = "Midia"
+        # Gatilhos gerais de midia e gatilhos especificos do Spotify
         self.triggers = [
             "tocar", "pausar", "continuar", "play",
-            "próxima", "avançar", "next",
+            "proxima", "avancar", "next",
             "anterior", "voltar", "previous",
             "spotify"
         ]
 
     @property
     def dependencies(self) -> List[str]:
-        """Mídia não depende de componentes do core."""
+        """Midia nao depende de componentes do core."""
         return []
 
     @property
     def metadata(self) -> Dict[str, str]:
-        """Metadados do módulo."""
+        """Metadados do modulo."""
         return {
             "version": "2.0.0",
             "author": "Aeon Core",
-            "description": "Controla reprodução de mídia e Spotify"
+            "description": "Controla reproducao de midia e Spotify"
         }
 
     def on_load(self) -> bool:
-        """Inicializa o módulo."""
+        """Inicializa o modulo."""
         return True
 
     def on_unload(self) -> bool:
@@ -44,24 +44,24 @@ class MidiaModule(AeonModule):
         return True
 
     def process(self, command: str) -> str:
-        # Lógica de Controle de Mídia Genérico
+        # Logica de Controle de Midia Generico
         media_play = ["tocar", "pausar", "continuar", "retomar", "play"]
-        media_next = ["próxima", "avançar", "next", "proxima"]
+        media_next = ["proxima", "avancar", "next", "proxima"]
         media_prev = ["anterior", "voltar", "previous"]
 
-        # Evita que "tocar no spotify" acione o play/pause genérico
+        # Evita que "tocar no spotify" acione o play/pause generico
         if "spotify" not in command:
             if any(t in command for t in media_play):
                 pyautogui.press('playpause')
                 return "Ok."
             if any(t in command for t in media_next):
                 pyautogui.press('nexttrack')
-                return "Próxima."
+                return "Proxima."
             if any(t in command for t in media_prev):
                 pyautogui.press('prevtrack')
                 return "Voltando."
 
-        # Lógica do Spotify
+        # Logica do Spotify
         if "spotify" in command:
             if "tocar" in command:
                 song_name = command.split("tocar")[-1].replace("no spotify", "").strip()
@@ -69,14 +69,14 @@ class MidiaModule(AeonModule):
                     self.tocar_no_spotify(song_name)
                     return f"Entendido. Vou tocar {song_name} no Spotify."
                 else:
-                    return "Não entendi o nome da música que você quer tocar."
+                    return "Nao entendi o nome da musica que voce quer tocar."
         
-        return "" # Nenhum gatilho específico do módulo foi acionado
+        return "" # Nenhum gatilho especifico do modulo foi acionado
 
     def tocar_no_spotify(self, song_name: str):
         """
-        Abre o Spotify, busca pela música e a toca.
-        Executa em uma thread para não bloquear o assistente.
+        Abre o Spotify, busca pela musica e a toca.
+        Executa em uma thread para nao bloquear o assistente.
         """
         def spotify_thread():
             try:
@@ -94,7 +94,7 @@ class MidiaModule(AeonModule):
                 pyautogui.hotkey('ctrl', 'l')
                 time.sleep(0.5)
                 
-                # 4. Digita a música
+                # 4. Digita a musica
                 pyautogui.write(song_name, interval=0.05)
                 time.sleep(1)
                 pyautogui.press('enter')
@@ -104,10 +104,10 @@ class MidiaModule(AeonModule):
                 pyautogui.press('enter')
             except Exception as e:
                 # Idealmente, logar isso
-                print(f"Erro no módulo Spotify: {e}")
+                print(f"Erro no modulo Spotify: {e}")
                 io_handler = self.core_context.get("io_handler")
                 if io_handler:
-                    io_handler.falar("Não consegui controlar o Spotify. Verifique se ele está instalado.")
+                    io_handler.falar("Nao consegui controlar o Spotify. Verifique se ele esta instalado.")
 
-        # Inicia a automação em uma thread separada
+        # Inicia a automacao em uma thread separada
         threading.Thread(target=spotify_thread).start()

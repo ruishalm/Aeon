@@ -10,7 +10,7 @@ from modules.base_module import AeonModule
 
 class SistemaModule(AeonModule):
     """
-    Módulo para interagir com o sistema operacional.
+    Modulo para interagir com o sistema operacional.
     """
     def __init__(self, core_context):
         super().__init__(core_context)
@@ -20,7 +20,7 @@ class SistemaModule(AeonModule):
         self.indexed_apps = self.indexar_programas()
         
         # O process() antigo fica mais simples, os gatilhos podem ser removidos
-        # pois a IA vai chamar os métodos diretamente.
+        # pois a IA vai chamar os metodos diretamente.
         self.triggers = ["sistema", "janela", "status", "desempenho", "abre", "instalar", "desligar", "offline", "online"]
 
     def get_tools(self) -> List[Dict[str, Any]]:
@@ -29,7 +29,7 @@ class SistemaModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Sistema.obter_status_sistema",
-                    "description": "Retorna o uso atual da CPU e da memória RAM do sistema.",
+                    "description": "Retorna o uso atual da CPU e da memoria RAM do sistema.",
                     "parameters": {"type": "object", "properties": {}}
                 }
             },
@@ -37,7 +37,7 @@ class SistemaModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Sistema.go_offline",
-                    "description": "Força o cérebro do Aeon a usar apenas o modelo de linguagem local, desativando a conexão com a nuvem.",
+                    "description": "Forca o cerebro do Aeon a usar apenas o modelo de linguagem local, desativando a conexao com a nuvem.",
                     "parameters": {"type": "object", "properties": {}}
                 }
             },
@@ -45,7 +45,7 @@ class SistemaModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Sistema.go_online",
-                    "description": "Tenta reconectar o cérebro do Aeon à nuvem para usar o modelo de linguagem online.",
+                    "description": "Tenta reconectar o cerebro do Aeon a nuvem para usar o modelo de linguagem online.",
                     "parameters": {"type": "object", "properties": {}}
                 }
             },
@@ -53,13 +53,13 @@ class SistemaModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Sistema.focar_janela",
-                    "description": "Muda o foco do sistema para uma janela específica pelo seu título.",
+                    "description": "Muda o foco do sistema para uma janela especifica pelo seu titulo.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "titulo_janela": {
                                 "type": "string",
-                                "description": "O título ou parte do título da janela para focar. Ex: 'Google Chrome', 'Visual Studio Code'"
+                                "description": "O titulo ou parte do titulo da janela para focar. Ex: 'Google Chrome', 'Visual Studio Code'"
                             }
                         },
                         "required": ["titulo_janela"]
@@ -87,7 +87,7 @@ class SistemaModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Sistema.desligar_computador",
-                    "description": "Inicia o processo de desligamento do computador do usuário.",
+                    "description": "Inicia o processo de desligamento do computador do usuario.",
                     "parameters": {"type": "object", "properties": {}}
                 }
             },
@@ -95,7 +95,7 @@ class SistemaModule(AeonModule):
                 "type": "function",
                 "function": {
                     "name": "Sistema.reiniciar_computador",
-                    "description": "Inicia o processo de reinicialização do computador do usuário.",
+                    "description": "Inicia o processo de reinicializacao do computador do usuario.",
                     "parameters": {"type": "object", "properties": {}}
                 }
             },
@@ -119,8 +119,8 @@ class SistemaModule(AeonModule):
         ]
 
     def process(self, command: str) -> str:
-        # Este método agora é apenas um fallback para comandos de bypass,
-        # tornando as verificações mais explícitas para evitar falsos positivos.
+        # Este metodo agora e apenas um fallback para comandos de bypass,
+        # tornando as verificacoes mais explicitas para evitar falsos positivos.
         cmd_lower = command.lower()
         if cmd_lower == "status do sistema": return self.obter_status_sistema()
         if cmd_lower == "desligar computador": return self.desligar_computador()
@@ -128,7 +128,7 @@ class SistemaModule(AeonModule):
         if cmd_lower == "ficar offline": return self.go_offline()
         if cmd_lower == "ficar online": return self.go_online()
         
-        # Mantém o gatilho "abre" um pouco mais flexível como exemplo de fallback
+        # Mantem o gatilho "abre" um pouco mais flexivel como exemplo de fallback
         if cmd_lower.startswith("abre "):
             app_name = command.replace("abre ", "").strip()
             return self.abrir_aplicativo(app_name)
@@ -136,18 +136,18 @@ class SistemaModule(AeonModule):
         return "" # Retorna vazio se nenhum comando de fallback exato for encontrado
 
     def go_offline(self) -> str:
-        """Força o cérebro a usar o modelo local."""
+        """Forca o cerebro a usar o modelo local."""
         brain = self.core_context.get("brain")
         if brain and hasattr(brain, 'force_offline'):
             return brain.force_offline()
-        return "Não foi possível acessar o cérebro para forçar o modo offline."
+        return "Nao foi possivel acessar o cerebro para forcar o modo offline."
 
     def go_online(self) -> str:
-        """Tenta reconectar o cérebro ao modelo da nuvem."""
+        """Tenta reconectar o cerebro ao modelo da nuvem."""
         brain = self.core_context.get("brain")
         if brain and hasattr(brain, 'force_online'):
             return brain.force_online()
-        return "Não foi possível acessar o cérebro para forçar o modo online."
+        return "Nao foi possivel acessar o cerebro para forcar o modo online."
 
     def indexar_programas(self) -> dict:
         """Mapeia atalhos e nomes comuns de programas para seus caminhos/comandos."""
@@ -177,7 +177,7 @@ class SistemaModule(AeonModule):
         path = self.indexed_apps.get(app_name_lower)
         
         if not path:
-            # Tenta encontrar por correspondência parcial
+            # Tenta encontrar por correspondencia parcial
             for indexed_name, indexed_path in self.indexed_apps.items():
                 if app_name_lower in indexed_name:
                     path = indexed_path
@@ -191,12 +191,12 @@ class SistemaModule(AeonModule):
                 os.system(path) # Fallback para comandos como 'cmd'
                 return f"Iniciando {nome_app}..."
         else:
-            return f"Não encontrei o aplicativo '{nome_app}'."
+            return f"Nao encontrei o aplicativo '{nome_app}'."
 
     def focar_janela(self, titulo_janela: str) -> str:
-        """Muda o foco para uma janela com base no título."""
+        """Muda o foco para uma janela com base no titulo."""
         try:
-            # gw.getWindowsWithTitle é case-sensitive, então iteramos para ser flexível
+            # gw.getWindowsWithTitle e case-sensitive, entao iteramos para ser flexivel
             all_windows = gw.getAllTitles()
             target_win = None
             for title in all_windows:
@@ -204,7 +204,7 @@ class SistemaModule(AeonModule):
                     target_win = gw.getWindowsWithTitle(title)[0]
                     break
             
-            if not target_win: return f"Nenhuma janela com o título '{titulo_janela}' encontrada."
+            if not target_win: return f"Nenhuma janela com o titulo '{titulo_janela}' encontrada."
             
             target_win.activate()
             return f"Foco alterado para a janela '{target_win.title[:30]}'."
@@ -215,20 +215,20 @@ class SistemaModule(AeonModule):
         """Retorna o uso de CPU e RAM."""
         cpu = psutil.cpu_percent(interval=1)
         ram = psutil.virtual_memory().percent
-        return f"No momento, o uso da CPU está em {cpu}% e a memória RAM em {ram}%."
+        return f"No momento, o uso da CPU esta em {cpu}% e a memoria RAM em {ram}%."
 
     def desligar_computador(self) -> str:
-        """Desliga o computador do usuário com um delay de 10 segundos."""
+        """Desliga o computador do usuario com um delay de 10 segundos."""
         os.system("shutdown /s /t 10")
-        return "O computador será desligado em 10 segundos."
+        return "O computador sera desligado em 10 segundos."
 
     def reiniciar_computador(self) -> str:
-        """Reinicia o computador do usuário com um delay de 10 segundos."""
+        """Reinicia o computador do usuario com um delay de 10 segundos."""
         os.system("shutdown /r /t 10")
-        return "O computador será reiniciado em 10 segundos."
+        return "O computador sera reiniciado em 10 segundos."
 
     def instalar_pacote(self, nome_pacote: str) -> str:
-        """Instala um pacote Python usando pip em uma thread para não bloquear."""
+        """Instala um pacote Python usando pip em uma thread para nao bloquear."""
         import sys
         import threading
         
@@ -236,7 +236,7 @@ class SistemaModule(AeonModule):
         
         def install_in_thread():
             try:
-                io_handler.falar(f"Iniciando instalação de {nome_pacote}.")
+                io_handler.falar(f"Iniciando instalacao de {nome_pacote}.")
                 subprocess.check_call([sys.executable, "-m", "pip", "install", nome_pacote])
                 io_handler.falar(f"Pacote {nome_pacote} instalado com sucesso.")
             except Exception as e:
@@ -244,15 +244,15 @@ class SistemaModule(AeonModule):
                 io_handler.falar(f"Desculpe, ocorreu um erro ao instalar o pacote {nome_pacote}.")
         
         threading.Thread(target=install_in_thread, daemon=True).start()
-        return f"Certo. A instalação de '{nome_pacote}' foi iniciada em segundo plano."
+        return f"Certo. A instalacao de '{nome_pacote}' foi iniciada em segundo plano."
 
-    # Funções de suporte que não são expostas como ferramentas diretas
+    # Funcoes de suporte que nao sao expostas como ferramentas diretas
     def _check_battery(self) -> str:
         if not hasattr(psutil, "sensors_battery"):
-            return "Não consigo ler sensores de bateria neste sistema."
+            return "Nao consigo ler sensores de bateria neste sistema."
         battery = psutil.sensors_battery()
         if battery:
-            plugged = "conectado à energia" if battery.power_plugged else "usando bateria"
+            plugged = "conectado a energia" if battery.power_plugged else "usando bateria"
             percent = battery.percent
-            return f"A bateria está em {percent}% e {plugged}."
-        return "Este computador não parece ter uma bateria."
+            return f"A bateria esta em {percent}% e {plugged}."
+        return "Este computador nao parece ter uma bateria."
