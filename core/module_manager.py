@@ -108,106 +108,49 @@ class ModuleManager:
             summary += f"- {mod.name}: {desc} (Gatilhos: {', '.join(mod.triggers[:5])})\n"
         return summary
 
-    def route_command(self, command: str) -> str:
-        """Roteia comando com PRIORIDADE DE TAMANHO."""
+    def route_command(self, command: str):
+        """Roteia comando com PRIORIDADE DE TAMANHO.
+        
+        Retorna:
+        - str: resposta do módulo (comando encontrado)
+        - None: nenhum trigger encontrado (deixa pro Brain conversar)
+        """
         command_lower = command.lower()
-        response = ""
 
         # 1. MODO FOCO
         if self.focused_module is not None:
             log_display(f"FOCO: {self.focused_module.name}")
-            return self.focused_module.process(command) or ""
+            response = self.focused_module.process(command)
+            # Salva na história
+            if response:
+                with self.history_lock:
+                    self.chat_history.append({"role": "user", "content": command})
+                    self.chat_history.append({"role": "assistant", "content": response})
+            return response or ""
         
         # 2. MODO LIVRE (Ordenado por comprimento de trigger)
-        triggered = False
         sorted_triggers = sorted(self.trigger_map.items(), key=lambda x: len(x[0]), reverse=True)
 
         for trigger, module in sorted_triggers:
             if trigger in command_lower:
                 if not module.check_dependencies():
-                    return f"Erro: Dependencia de {module.name} falhou."
+                    response = f"Erro: Dependencia de {module.name} falhou."
+                    return response
                 
                 log_display(f"Trigger '{trigger}' acionou '{module.name}'")
                 response = module.process(command)
-                triggered = True
-                break 
-
-        # 3. Se nenhum trigger foi disparado, tenta o Brain como fallback inteligente
-        if not triggered:
-            brain = self.core_context.get("brain")
-            if brain:
-                hist = self._format_history()
-                caps = self.get_capabilities_summary()
                 
-                # Recupera memorias de longo prazo relevantes para a pergunta atual
-                long_term = ""
-                if self.vector_memory:
-                    long_term = self.vector_memory.retrieve_relevant(command)
+                # Salva na história
+                if response:
+                    with self.history_lock:
+                        self.chat_history.append({"role": "user", "content": command})
+                        self.chat_history.append({"role": "assistant", "content": response})
                 
-                # Chama brain.pensar com parametros compativeis
-                # Tenta com novos parametros, senao usa os basicos
-                try:
-                    ai_decision = brain.pensar(
-                        prompt=command,
-                        historico_txt=hist,
-                        user_prefs={},
-                        capabilities=caps,
-                        long_term_context=long_term
-                    )
-                except TypeError:
-                    # Fallback para assinatura antiga
-                    ai_decision = brain.pensar(
-                        prompt=command,
-                        historico_txt=hist,
-                        user_prefs={}
-                    )
-                
-                # Interpreta resposta da IA
-                if isinstance(ai_decision, dict):
-                    # Chamada de ferramenta
-                    if ai_decision.get("tool_name"):
-                        tool = ai_decision["tool_name"]
-                        params = ai_decision.get("parameters", {})
-                        
-                        try:
-                            mod_name, func_name = tool.split(".")
-                        except ValueError:
-                            response = "Erro: formato de ferramenta invalido"
-                        else:
-                            mod = self.module_map.get(mod_name.lower())
-                            if not mod:
-                                response = "ferramenta inexistente"
-                            elif hasattr(mod, func_name):
-                                response = str(getattr(mod, func_name)(**params))
-                            else:
-                                response = "ferramenta inexistente"
-                    # Fallback de conversa
-                    elif ai_decision.get("fallback"):
-                        response = ai_decision.get("fallback")
-                    else:
-                        response = str(ai_decision)
-                else:
-                    # String simples = conversa
-                    response = str(ai_decision)
-            else:
-                response = "Cerebro indisponivel."
-
-        # 4. MEMORIA (Thread-Safe)
-        if response:
-            with self.history_lock:
-                self.chat_history.append({"role": "user", "content": command})
-                self.chat_history.append({"role": "assistant", "content": response})
-                
-                # Salva a interacao na memoria de longo prazo (apenas se nao for comando de modulo)
-                if self.vector_memory and not triggered:
-                    self.vector_memory.store_interaction(command, response)
-                
-                # Garante que a lista nao exceda o tamanho maximo
-                history_len = len(self.chat_history)
-                if history_len > self.max_history * 2:
-                    self.chat_history = self.chat_history[history_len - self.max_history * 2:]
-
-        return response if response else ""
+                return response if response else ""
+        
+        # 3. Se nenhum trigger foi disparado, RETORNA NONE
+        # MainLogic decidirá se manda pro Brain para conversa natural
+        return None
 
     # Métodos de Foco
     def lock_focus(self, module, timeout=None):

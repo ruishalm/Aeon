@@ -30,29 +30,44 @@ class MainLogic:
     def _process_background(self, text):
         try:
             # 1. Tenta achar o comando nos módulos
-            response = self.module_manager.route_command(text)
+            module_response = self.module_manager.route_command(text)
 
-            # 2. Se for Texto Simples
-            if isinstance(response, str):
-                self.gui.add_message(response, "AEON")
-                if self.io: self.io.falar(response)
-
-            # 3. Se for uma Ferramenta (JSON/Dict)
-            elif isinstance(response, dict):
-                tool = response.get("tool")
-                param = response.get("param")
-                self.gui.add_message(f"Executando: {tool}...", "SISTEMA")
-                
-                # Executa a ação real
-                res_tool = self.module_manager.executar_ferramenta(tool, param)
-                
-                self.gui.add_message(str(res_tool), "AEON")
-                if self.io: self.io.falar(str(res_tool))
+            # Se encontrou um módulo (resposta != None)
+            if module_response is not None:
+                if isinstance(module_response, str):
+                    self.gui.add_message(module_response, "AEON")
+                    if self.io: self.io.falar(module_response)
+                elif isinstance(module_response, dict):
+                    tool = module_response.get("tool")
+                    param = module_response.get("param")
+                    self.gui.add_message(f"Executando: {tool}...", "SISTEMA")
+                    res_tool = self.module_manager.executar_ferramenta(tool, param)
+                    self.gui.add_message(str(res_tool), "AEON")
+                    if self.io: self.io.falar(str(res_tool))
             
-            # 4. Se não for nada (None), manda pro Cérebro genérico (LLM)
-            elif response is None:
-                 self.gui.add_message("Hmm...", "AEON")
-                 # Aqui você poderia chamar o brain.pensar() se quisesse papo furado
+            # Se retornou None, não tem trigger - tenta conversa natural com Brain
+            else:
+                brain = self.module_manager.core_context.get("brain")
+                if brain:
+                    # Pede ao Brain uma conversa natural (não comando)
+                    response = brain.pensar(
+                        prompt=text,
+                        modo="conversa"  # Indica que é conversa, não comando
+                    )
+                    
+                    if response:
+                        self.gui.add_message(response, "AEON")
+                        if self.io: self.io.falar(response)
+                        
+                        # Salva na história
+                        if self.module_manager:
+                            with self.module_manager.history_lock:
+                                self.module_manager.chat_history.append({"role": "user", "content": text})
+                                self.module_manager.chat_history.append({"role": "assistant", "content": response})
+                    else:
+                        self.gui.add_message("Hmm, não consegui processar...", "AEON")
+                else:
+                    self.gui.add_message("Cérebro indisponível.", "AEON")
 
         except Exception as e:
             self.gui.add_message(f"Erro de processamento: {e}", "ERRO")

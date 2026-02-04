@@ -30,18 +30,36 @@ class AeonBrain:
                 print(f"[BRAIN] Falha na nuvem: {e}")
                 self.online = False
 
-    def pensar(self, prompt: str, historico_txt: str = "", **kwargs):
-        self._conectar() # Conecta agora!
-        
-        # Prompt que define a personalidade
-        system_prompt = f"""Você é AEON.
-        Data: {datetime.datetime.now().strftime("%d/%m/%Y")}.
-        Responda de forma direta e cínica.
-        
-        REGRAS:
-        1. Se for conversa: Responda texto puro.
-        2. Se for comando (abrir, pesquisar, lembrar): Responda JSON: {{"tool": "...", "param": "..."}}
+    def pensar(self, prompt: str, historico_txt: str = "", modo: str = "auto", **kwargs):
         """
+        Pensa sobre um input do usuário.
+        
+        Args:
+            prompt: O comando/pergunta do usuário
+            historico_txt: Histórico de conversa
+            modo: "conversa" para bate-papo, "auto" para detectar automaticamente
+            **kwargs: Parâmetros opcionais adicionais
+        
+        Retorna:
+            str: Resposta da IA ou conversador local
+            None: Não conseguiu processar
+        """
+        self._conectar()  # Conecta agora!
+        
+        # Define sistema baseado no modo
+        if modo == "conversa":
+            system_prompt = """Você é AEON, uma IA brasileira sociável e cínica.
+            Data: {}.
+            
+            Responda de forma natural e conversacional. Não mencione comandos ou módulos a menos que perguntado.
+            Seja amigável, um pouco irreverente, mas sempre respeitoso.
+            Respostas curtas (1-2 frases).
+            """.format(__import__('datetime').datetime.now().strftime("%d/%m/%Y"))
+        else:
+            system_prompt = """Você é AEON.
+            Data: {}.
+            Responda de forma direta e cínica.
+            """.format(__import__('datetime').datetime.now().strftime("%d/%m/%Y"))
 
         # Tenta Nuvem (Groq)
         if self.online and self.client:
@@ -54,18 +72,92 @@ class AeonBrain:
                     ],
                     temperature=0.7
                 )
-                return self._parse_response(chat.choices[0].message.content)
+                response = chat.choices[0].message.content
+                return response if response else None
             except Exception as e:
                 print(f"[BRAIN] Erro nuvem: {e}. Tentando local...")
 
         # Tenta Local (Ollama)
-        try:
-            r = ollama.chat(model="qwen2.5-coder:7b", messages=[{"role": "user", "content": prompt}])
-            return self._parse_response(r['message']['content'])
-        except Exception as e:
-            print(f"[BRAIN] Ollama nao disponivel: {e}")
-            # Retorna um fallback neutro ao invés de mensagem de erro
-            return f"Entendi: {prompt}. Processando..."
+        if self.local_ready:
+            try:
+                r = ollama.chat(model="qwen2.5-coder:7b", messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ])
+                response = r['message']['content']
+                return response if response else None
+            except Exception as e:
+                print(f"[BRAIN] Ollama nao disponivel: {e}")
+
+        # Se chegou aqui e é conversa, usa conversador local simples
+        if modo == "conversa":
+            return self._conversar_local(prompt)
+        
+        # Fallback para modo auto/comando
+        return None
+
+    def _conversar_local(self, prompt: str) -> str:
+        """Conversa simples baseada em keywords quando LLM falha."""
+        p = prompt.lower()
+        
+        # Saudações
+        if any(x in p for x in ["oi", "ola", "hey", "e aí", "beleza", "tudo bem"]):
+            import random
+            responses = [
+                "Oi! Tudo certo por aqui.",
+                "Opa, e aí! Que posso fazer?",
+                "Fala aí! Bora começar?",
+                "Oi Ruishalm, seja bem-vindo!",
+                "E aí, meu patrão!",
+            ]
+            return random.choice(responses)
+        
+        # Perguntas sobre hora/data
+        if any(x in p for x in ["que horas", "hora", "data", "dia", "quando"]):
+            import datetime
+            now = datetime.datetime.now()
+            hora = now.strftime("%H:%M")
+            dia = now.strftime("%A")
+            return f"Agora são {hora} de {dia}."
+        
+        # Perguntas sobre o próprio Aeon
+        if any(x in p for x in ["quem e voce", "quem é você", "o que e", "o que é", "seu nome"]):
+            return "Sou AEON, seu assistente. Posso reconhecer comandos de voz e controlar seus módulos."
+        
+        # Agradecimentos
+        if any(x in p for x in ["obrigado", "valeu", "obrigada", "thanks"]):
+            import random
+            responses = [
+                "De nada!",
+                "Por nada, é sempre um prazer!",
+                "Disponível!",
+                "Qualquer coisa, é só chamar.",
+            ]
+            return random.choice(responses)
+        
+        # Despedidas
+        if any(x in p for x in ["tchau", "até logo", "adeus", "falou"]):
+            return "Até mais! Fica bem."
+        
+        # Piadas/humor
+        if any(x in p for x in ["piada", "me faz rir", "coisa engraçada"]):
+            import random
+            piadas = [
+                "Por que a programadora foi ao psicólogo? Porque tinha problemas de dependência!",
+                "O que um chip disse para o outro? 'Nossa conexão é muito eletrônica!'",
+                "Como é que sabe se um programador está indo embora? Ele sai de verdade!",
+            ]
+            return random.choice(piadas)
+        
+        # Fallback genérico
+        import random
+        fallbacks = [
+            "Entendi. Posso ajudar com algo mais específico?",
+            "Tipo... você quer fazer o quê exatamente?",
+            "Hmm, não tenho certeza como responder isso. Mas posso ajudar com comandos!",
+            "Legal, legal. E aí, qual é a missão?",
+        ]
+        return random.choice(fallbacks)
 
     def _parse_response(self, text):
         # Detecta JSON no meio do texto
