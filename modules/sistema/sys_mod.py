@@ -125,9 +125,19 @@ class SistemaModule(AeonModule):
         
         # Comandos de saida/parada
         if any(x in cmd_lower for x in ["sair", "parar", "fechar", "exit", "quit"]):
+            # Retorna uma mensagem antes de encerrar
+            msg = "Até logo! Encerrando Aeon..."
+            # Programa a saida para daqui a 1 segundo para dar tempo de exibir a mensagem
+            import threading
             import sys
-            print("[SISTEMA] Encerrando Aeon...")
-            sys.exit(0)
+            def exit_delayed():
+                import time
+                time.sleep(1.5)
+                print("[SISTEMA] Encerrando...")
+                sys.exit(0)
+            t = threading.Thread(target=exit_delayed, daemon=True)
+            t.start()
+            return msg
         
         if cmd_lower == "status do sistema": return self.obter_status_sistema()
         if cmd_lower == "desligar computador": return self.desligar_computador()
