@@ -16,6 +16,8 @@ class STTModule(AeonModule):
         self.model = None
         # None = não verificado, True = advanced engine disponível, False = não disponível
         self.drivers_ok = None
+        self.mic_device_index = None  # Índice do microfone selecionado
+        self._calibrated = False
 
     def on_load(self) -> bool:
         """Inicia o sistema de audição assim que o módulo carrega."""
@@ -80,7 +82,35 @@ class STTModule(AeonModule):
 
         # 2. Se os drivers estiverem OK, carrega o modelo
         self.recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = 1000
+        
+        # Detecta e seleciona o melhor microfone disponível
+        try:
+            mic_names = sr.Microphone.list_microphone_names()
+            print(f"[AUDICAO] Microfones detectados: {mic_names}")
+            
+            # Tenta encontrar Headset ou Headphones como primeira opção
+            self.mic_device_index = None
+            for idx, name in enumerate(mic_names):
+                name_lower = name.lower()
+                # Prioridade: EDIFIER Headset > Qualquer Headset > Default
+                if "edifier" in name_lower and "headset" in name_lower:
+                    self.mic_device_index = idx
+                    print(f"[AUDICAO] Microfone EDIFIER selecionado: {name} (índice {idx})")
+                    break
+                elif "headset" in name_lower:
+                    self.mic_device_index = idx
+                    print(f"[AUDICAO] Headset selecionado: {name} (índice {idx})")
+                    # Não para aqui - continua procurando por EDIFIER
+            
+            if self.mic_device_index is None:
+                print(f"[AUDICAO] Nenhum Headset encontrado. Usando mic padrão.")
+                self.mic_device_index = None  # Deixa sr.Microphone() usar o padrão
+        except Exception as e:
+            print(f"[AUDICAO] Erro ao listar microfones: {e}")
+            self.mic_device_index = None
+
+        # Valor inicial; será recalibrado por ambient noise se possível (apenas uma vez)
+        self.recognizer.energy_threshold = 300
 
         if advanced:
             try:
@@ -104,9 +134,27 @@ class STTModule(AeonModule):
         
         print(f"[AUDICAO] Iniciando loop de escuta (fallback={fallback})")
         
+        # Faz calibração de ruido ambiente uma vez antes do loop principal
+        try:
+            with sr.Microphone(device_index=self.mic_device_index, sample_rate=16000) as source:
+                try:
+                    self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
+                    # Cap no energy_threshold para evitar valores absurdos
+                    if self.recognizer.energy_threshold > 800:
+                        self.recognizer.energy_threshold = 400
+                    self._calibrated = True
+                    print(f"[AUDICAO] energy_threshold calibrado para {self.recognizer.energy_threshold}")
+                except Exception as e:
+                    print(f"[AUDICAO] Nao foi possivel ajustar ruido ambiente: {e}")
+        except Exception:
+            # Falha ao abrir microfone para calibração; continuará sem calibrar
+            pass
+
         while self.listening:
             try:
-                with sr.Microphone(sample_rate=16000) as source:
+                # Usa o microfone selecionado, ou o padrão se None
+                with sr.Microphone(device_index=self.mic_device_index, sample_rate=16000) as source:
+                    # Não recalibrar a cada iteração para evitar flutuações constantes
                     try:
                         print("[AUDICAO] Aguardando áudio do microfone...")
                         audio = self.recognizer.listen(source, timeout=2, phrase_time_limit=10)
@@ -128,6 +176,15 @@ class STTModule(AeonModule):
                         )
                         texto_final = " ".join([s.text for s in segments]).strip()
                         print(f"[AUDICAO] Transcrito (Whisper): {texto_final}")
+                        # update mic level from audio
+                        try:
+                            audio_np = audio_np if 'audio_np' in locals() else np.frombuffer(audio.get_raw_data(), dtype=np.int16).astype(np.float32) / 32768.0
+                            rms = float(np.sqrt(np.mean(audio_np**2)))
+                            level = min(1.0, rms * 10.0)
+                            if gui and hasattr(gui, 'set_mic_level'):
+                                gui.set_mic_level(level)
+                        except Exception:
+                            pass
                     else:
                         # Fallback para Google Speech Recognition (requer internet) — mais leve
                         try:
@@ -143,6 +200,17 @@ class STTModule(AeonModule):
                         except Exception as e:
                             print(f"[AUDICAO] Erro no reconhecimento fallback: {e}")
                             texto_final = ""
+
+                    # Update mic visual level in GUI for fallback path as well
+                    try:
+                        raw = audio.get_raw_data()
+                        audio_np2 = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                        rms2 = float(np.sqrt(np.mean(audio_np2**2)))
+                        level2 = min(1.0, rms2 * 10.0)
+                        if gui and hasattr(gui, 'set_mic_level'):
+                            gui.set_mic_level(level2)
+                    except Exception:
+                        pass
                     
                     if texto_final:
                         print(f"[AUDICAO] Enviando para GUI: '{texto_final}'")

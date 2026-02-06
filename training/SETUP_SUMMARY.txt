@@ -1,0 +1,243 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║               ✨ ESTRUTURA DE TREINAMENTO AEON COMPLETA ✨                 ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+📁 training/
+│
+├─ 📄 README.md ⭐
+│  └─ Visão geral completa + resumo visual
+│  └─ Comparação das 3 opções (Groq/Ollama/Unsloth)
+│  └─ Como começar em 5 passos
+│
+├─ 📄 TRAINING_GUIDE.md ⭐ (LEIA ESTE PRIMEIRO!)
+│  └─ Guia SUPER DETALHADO com exemplos
+│  └─ Passo-a-passo completo
+│  └─ Instruções para cada plataforma
+│  └─ Troubleshooting
+│
+├─ raw_logs/ 📂
+│  ├─ 📄 README.md
+│  │  └─ Como exportar de ChatGPT, Claude, Discord
+│  │  └─ Formatos esperados
+│  ├─ (coloque aqui seus arquivos!)
+│  ├─ conversation.log (seu log Aeon)
+│  ├─ chatgpt.json
+│  ├─ claude.json
+│  └─ discord.json
+│
+├─ processed/ 📂
+│  ├─ dados_training.txt (VOCÊ/AEON format)
+│  └─ dados_training.jsonl (pronto para treinar)
+│
+├─ models/ 📂
+│  ├─ aeon-offline-lora/ (modelo Ollama com LoRA)
+│  └─ aeon-online/ (metadados Groq)
+│
+├─ 🐍 converter.py ⭐⭐ (MAIN!)
+│  └─ Transforma logs de QUALQUER fonte em VOCÊ/AEON
+│  └─ Detecta formato automaticamente
+│  └─ Suporta: ChatGPT, Claude, Discord, logs simples
+│  └─ Gera JSONL para treinamento
+│
+│  USO:
+│  $ python converter.py --source raw_logs/ --jsonl --profile
+│
+│
+├─ 🐍 extrair_padroes.py ⭐⭐ (IMPORTANTE!)
+│  └─ Detecta COMO VOCÊ FALA
+│  └─ Analisa: gírias, tom, palavras-chave, estrutura
+│  └─ Gera: CUSTOM_SYSTEM_PROMPT.md
+│  └─ O Aeon usará isso para imitar seu estilo!
+│
+│  USO:
+│  $ python extrair_padroes.py processed/dados_training.jsonl
+│  └─ RESULTADO: CUSTOM_SYSTEM_PROMPT.md (seu perfil!)
+│
+│
+├─ 🐍 integrador.py
+│  └─ Integra modelos treinados em core/brain.py
+│  └─ Gera templates de código
+│  └─ Verifica modelos disponíveis
+│
+│  USO:
+│  $ python integrador.py template
+│  $ python integrador.py ollama aeon-personalized
+│  $ python integrador.py groq seu-modelo-id
+│
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                          🚀 WORKFLOW RÁPIDO                               ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+PASSO 1: Preparar Dados
+┌────────────────────────────────────────────────────────────────┐
+│ $ cd training                                                  │
+│ $ python converter.py --source raw_logs/ --jsonl --profile   │
+│                                                                │
+│ SAÍDA:                                                         │
+│ ✅ processed/dados_training.txt (VOCÊ/AEON)                  │
+│ ✅ processed/dados_training.jsonl (JSONL)                    │
+│ 📊 Análise de padrões no console                             │
+└────────────────────────────────────────────────────────────────┘
+
+PASSO 2: Extrair Seu Estilo
+┌────────────────────────────────────────────────────────────────┐
+│ $ python extrair_padroes.py processed/dados_training.jsonl   │
+│                                                                │
+│ SAÍDA:                                                         │
+│ 📊 CUSTOM_SYSTEM_PROMPT.md                                    │
+│    (seu perfil: gírias, tom, palavras-chave, etc)            │
+└────────────────────────────────────────────────────────────────┘
+
+PASSO 3: Escolher Método de Treinamento
+┌────────────────────────────────────────────────────────────────┐
+│ OPÇÃO A: Groq (Cloud)                                          │
+│   └─ Rápido (20-30 min)                                       │
+│   └─ Sem instalar                                             │
+│   └─ Modelo fica na nuvem                                     │
+│                                                                │
+│ OPÇÃO B: Ollama (Local)                                        │
+│   └─ Privado, offline                                         │
+│   └─ Mais configurável                                        │
+│   └─ Modelo roda no seu PC                                    │
+│                                                                │
+│ OPÇÃO C: Unsloth (Rápido!)                                     │
+│   └─ Super rápido (15-30 min)                                 │
+│   └─ Melhor qualidade                                         │
+│   └─ Compatível com Groq+Ollama                               │
+└────────────────────────────────────────────────────────────────┘
+
+PASSO 4: Treinar (vou fornecer scripts específicos)
+┌────────────────────────────────────────────────────────────────┐
+│ Groq:    groq_finetuning.py (em breve)                        │
+│ Ollama:  ollama_finetuning.py (em breve)                      │
+│ Unsloth: unsloth_training.py (em breve)                       │
+└────────────────────────────────────────────────────────────────┘
+
+PASSO 5: Integrar em core/brain.py
+┌────────────────────────────────────────────────────────────────┐
+│ $ python integrador.py template                               │
+│   └─ Gera INTEGRATION_TEMPLATE.md                             │
+│   └─ Copia código para core/brain.py                          │
+│   └─ Testa: python main.py                                    │
+└────────────────────────────────────────────────────────────────┘
+
+PASSO 6: Testar!
+┌────────────────────────────────────────────────────────────────┐
+│ $ cd ..                                                        │
+│ $ python main.py                                              │
+│                                                                │
+│ VOCÊ: "Olá Aeon!"                                             │
+│ AEON: (responde no SEU ESTILO!) ✨                            │
+└────────────────────────────────────────────────────────────────┘
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                       📊 COMANDOS PRINCIPAIS                               ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+📝 Converter Logs
+  $ python converter.py --source raw_logs/ --jsonl --profile
+
+🔍 Extrair Padrões (seu estilo)
+  $ python extrair_padroes.py processed/dados_training.jsonl
+
+🔧 Integrar Modelo
+  $ python integrador.py template
+  $ python integrador.py ollama aeon-personalized
+  $ python integrador.py groq seu-modelo-id
+
+✅ Verificar Modelos
+  $ python integrador.py verify
+
+💾 Fazer Backup
+  $ python integrador.py backup
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    💡 OPÇÕES DE TREINAMENTO                               ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌─ GROQ (Cloud) ─────────────────────────────────────────────────┐
+│                                                                 │
+│ ✅ Vantagens:                                                   │
+│    • Muito rápido (20-30 min)                                  │
+│    • Sem instalar                                              │
+│    • Sem hardware necessário                                   │
+│    • Modelo na nuvem                                           │
+│                                                                 │
+│ ❌ Desvantagens:                                                │
+│    • Precisa internet                                          │
+│    • Dados vão pra Groq                                        │
+│    • Custo (mas barato)                                        │
+│                                                                 │
+│ 🎯 Melhor para: Começar rápido, testar                         │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ OLLAMA (Local) ───────────────────────────────────────────────┐
+│                                                                 │
+│ ✅ Vantagens:                                                   │
+│    • 100% privado                                              │
+│    • Offline (sem internet)                                    │
+│    • Customizável ao máximo                                    │
+│    • Corre no seu PC                                           │
+│    • Grátis                                                    │
+│                                                                 │
+│ ❌ Desvantagens:                                                │
+│    • Mais lento (1-2 horas)                                    │
+│    • Precisa de espaço (10GB+)                                 │
+│    • Mais técnico                                              │
+│                                                                 │
+│ 🎯 Melhor para: Privacidade, offline, controle total          │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ UNSLOTH (Rápido) ─────────────────────────────────────────────┐
+│                                                                 │
+│ ✅ Vantagens:                                                   │
+│    • MUITO RÁPIDO (15-30 min)                                  │
+│    • Excelente qualidade                                       │
+│    • Funciona com Groq+Ollama                                  │
+│    • Otimizado para qualidade                                  │
+│    • Grátis                                                    │
+│                                                                 │
+│ ❌ Desvantagens:                                                │
+│    • Precisa GPU (ou CPU lento)                                │
+│    • Um pouco mais complexo                                    │
+│                                                                 │
+│ 🎯 Melhor para: Qualidade máxima + velocidade                 │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                         📚 ARQUIVOS PRINCIPAIS                             ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+LEIA PRIMEIRO:
+  1. ✨ README.md (este é bom para começar!)
+  2. 📖 TRAINING_GUIDE.md (guia SUPER detalhado)
+  3. 🎯 raw_logs/README.md (como exportar dados)
+
+EXECUTE:
+  1. 🐍 converter.py (transforma seus logs)
+  2. 🐍 extrair_padroes.py (detecta seu estilo)
+  3. 🐍 integrador.py (integra modelo)
+
+INTEGRAÇÃO:
+  1. 📝 CUSTOM_SYSTEM_PROMPT.md (seu perfil gerado)
+  2. 📝 INTEGRATION_TEMPLATE.md (como colocar em brain.py)
+  3. 📝 QUICK_INTEGRATION.md (resumo)
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                      ✅ VOCÊ ESTÁ 100% PRONTO!                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+Próximo passo:
+
+  1. Coloque seus logs em: training/raw_logs/
+  2. Rode: python converter.py --source raw_logs/ --jsonl --profile
+  3. Rode: python extrair_padroes.py processed/dados_training.jsonl
+  4. Abra: CUSTOM_SYSTEM_PROMPT.md (veja seu perfil!)
+  5. Escolha 1 método (Groq/Ollama/Unsloth)
+  6. Avise qual método você quer que eu forneça o script!
+
+═══════════════════════════════════════════════════════════════════════════════

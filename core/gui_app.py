@@ -1,357 +1,509 @@
-import customtkinter as ctk
-import psutil
-import threading
 import sys
 import os
-import subprocess
-import shutil
+import math
+import threading
+import psutil
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+                             QTextEdit, QLineEdit, QPushButton, QLabel, QFrame, 
+                             QProgressBar, QListWidget, QSizePolicy)
+from PyQt5.QtCore import Qt, QTimer, QPoint, QRectF, pyqtSignal, QObject, QEvent, QRect
+from PyQt5.QtGui import QColor, QPainter, QRadialGradient, QPen, QBrush, QTextCursor, QFont
 
-# Importações do Core
+# Garante que a raiz do projeto esteja no path ANTES de importar o Core
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from core.module_manager import ModuleManager
 from core.io_handler import IOHandler
 from core.config_manager import ConfigManager
 from core.context_manager import ContextManager
-
-# Tenta importar Brain de forma robusta
 try:
     from core.brain import AeonBrain as Brain
 except ImportError:
-    try:
-        from core.brain import Brain
-    except ImportError:
-        print("ERRO CRÍTICO: Classe Brain não encontrada.")
+    from core.brain import Brain
 
-# CONFIGURAÇÕES DE TEMA (CYBERPUNK)
-C = {
-    "bg": "#0d1117", "panel_bg": "#161b22", "accent_primary": "#58a6ff", 
-    "accent_secondary": "#238636", "accent_alert": "#da3633", "text_main": "#c9d1d9", 
-    "text_dim": "#8b949e", "code_bg": "#000000", "user_bubble": "#1f6feb", "bot_bubble": "#21262d"
-}
-
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("dark-blue")
-
-class AeonGUI(ctk.CTk):
-    def __init__(self):
-        super().__init__()
+class BigSphere(QWidget):
+    """Esfera Visual Gigante para o Modo Terminal"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(300, 300)
+        self.pulse_phase = 0.0
+        self.rotation_angle = 0.0
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.animate)
+        self.timer.start(16) # 60 FPS
+        self.state = "IDLE"
         
-        self.config_manager = ConfigManager()
-        cfg = getattr(self.config_manager, 'config', {}) 
-        self.io_handler = IOHandler(cfg, None)
-        
-        try:
-            self.brain = Brain(self.config_manager)
-        except Exception as e:
-            print(f"[GUI] Erro ao iniciar Brain: {e}")
-            self.brain = None
-
-        self.context_manager = ContextManager() 
-        
-        # Ajuste de caminho: Como este arquivo está em /core, subimos um nível para achar a raiz
-        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.workspace_path = os.path.join(root_dir, "workspace")
-        os.makedirs(self.workspace_path, exist_ok=True)
-
-        self.core_context = {
-            "config_manager": self.config_manager,
-            "io_handler": self.io_handler,
-            "brain": self.brain,
-            "context": self.context_manager,
-            "gui": self,
-            "workspace": self.workspace_path
-        }
-
-        self.module_manager = ModuleManager(self.core_context)
-        self.core_context["module_manager"] = self.module_manager
-        self.module_manager.load_modules()
-
-        self.title("AEON V86 // NEURAL INTERFACE")
-        self.geometry("1200x700")
-        self.configure(fg_color=C["bg"])
-        self.minsize(1000, 600)
-
-        self.grid_columnconfigure(0, weight=1, minsize=250) 
-        self.grid_columnconfigure(1, weight=3, minsize=500) 
-        self.grid_columnconfigure(2, weight=1, minsize=300) 
-        self.grid_rowconfigure(0, weight=1)
-
-        self.setup_left_panel()
-        self.setup_center_panel()
-        self.setup_right_panel()
-
-        self.running = True
-        
-        # Configura limpeza automática ao fechar e ao abrir
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
-        threading.Thread(target=self.cleanup_temp_files, daemon=True).start()
-
-        threading.Thread(target=self.loop_vitals, daemon=True).start()
-        
-        self.add_message("Sistema Online. V86 Estabilizada.", "SISTEMA")
-        self.update_module_list()
-
-    def setup_left_panel(self):
-        self.frame_left = ctk.CTkFrame(self, fg_color=C["panel_bg"], corner_radius=0)
-        self.frame_left.grid(row=0, column=0, sticky="nsew", padx=(0,1), pady=0)
-        
-        ctk.CTkLabel(self.frame_left, text="SYSTEM STATUS", font=("Consolas", 14, "bold"), text_color=C["text_dim"]).pack(pady=(20, 15), padx=20, anchor="w")
-
-        self.status_frame = ctk.CTkFrame(self.frame_left, fg_color=C["panel_bg"])
-        self.status_frame.pack(fill="x", padx=20, pady=(0, 20))
-        
-        self.led_online = self._create_led(self.status_frame, "NUVEM (GROQ)", C["accent_alert"])
-        self.led_online.pack(side="top", fill="x", pady=2)
-        
-        self.led_local = self._create_led(self.status_frame, "NEURAL (LOCAL)", C["accent_alert"])
-        self.led_local.pack(side="top", fill="x", pady=2)
-
-        ctk.CTkFrame(self.frame_left, height=2, fg_color="#30363d").pack(fill="x", padx=20, pady=10)
-        
-        self.lbl_cpu = ctk.CTkLabel(self.frame_left, text="CPU: 0%", font=("Consolas", 12), text_color=C["text_main"])
-        self.lbl_cpu.pack(padx=20, anchor="w")
-        self.bar_cpu = ctk.CTkProgressBar(self.frame_left, progress_color=C["accent_secondary"])
-        self.bar_cpu.pack(padx=20, pady=(0, 15), fill="x")
-        
-        self.lbl_ram = ctk.CTkLabel(self.frame_left, text="RAM: 0%", font=("Consolas", 12), text_color=C["text_main"])
-        self.lbl_ram.pack(padx=20, anchor="w")
-        self.bar_ram = ctk.CTkProgressBar(self.frame_left, progress_color=C["accent_primary"])
-        self.bar_ram.pack(padx=20, pady=(0, 20), fill="x")
-
-        ctk.CTkFrame(self.frame_left, height=2, fg_color="#30363d").pack(fill="x", padx=20, pady=10)
-        ctk.CTkLabel(self.frame_left, text="ACTIVE MODULES", font=("Consolas", 14, "bold"), text_color=C["text_dim"]).pack(pady=10, padx=20, anchor="w")
-        
-        self.scroll_modules = ctk.CTkScrollableFrame(self.frame_left, fg_color=C["panel_bg"])
-        self.scroll_modules.pack(fill="both", expand=True, padx=10, pady=10)
-
-    def _create_led(self, parent, text, color):
-        frame = ctk.CTkFrame(parent, fg_color=C["panel_bg"])
-        canvas = ctk.CTkCanvas(frame, width=12, height=12, bg=C["panel_bg"], highlightthickness=0)
-        canvas.pack(side="left", padx=(0, 10))
-        led_id = canvas.create_oval(2, 2, 10, 10, fill=color, outline="")
-        label = ctk.CTkLabel(frame, text=text, font=("Consolas", 11, "bold"), text_color=C["text_dim"])
-        label.pack(side="left")
-        frame.canvas = canvas
-        frame.led = led_id
-        return frame
-
-    def update_module_list(self):
-        for widget in self.scroll_modules.winfo_children():
-            widget.destroy()
-        try:
-            modules = self.module_manager.get_loaded_modules()
-            for mod in modules:
-                self.add_module_status(mod.name, True)
-        except Exception as e:
-            print(f"[GUI_ERROR] Falha lista: {e}")
-
-    def add_module_status(self, name, active):
-        row = ctk.CTkFrame(self.scroll_modules, fg_color=C["panel_bg"])
-        row.pack(fill="x", pady=2)
-        color = C["accent_secondary"] if active else C["accent_alert"]
-        status_text = "ONLINE" if active else "OFFLINE"
-        canvas = ctk.CTkCanvas(row, width=10, height=10, bg=C["panel_bg"], highlightthickness=0)
-        canvas.pack(side="left", padx=(5,10))
-        canvas.create_oval(1, 1, 9, 9, fill=color, outline="")
-        ctk.CTkLabel(row, text=name, font=("Consolas", 12), text_color=C["text_main"]).pack(side="left")
-        ctk.CTkLabel(row, text=status_text, font=("Consolas", 10), text_color=C["text_dim"]).pack(side="right", padx=5)
-
-    def setup_center_panel(self):
-        self.frame_center = ctk.CTkFrame(self, fg_color=C["bg"], corner_radius=0)
-        self.frame_center.grid(row=0, column=1, sticky="nsew")
-        self.frame_center.grid_rowconfigure(0, weight=1)
-        self.frame_center.grid_columnconfigure(0, weight=1)
-
-        self.chat_feed = ctk.CTkScrollableFrame(self.frame_center, fg_color=C["bg"])
-        self.chat_feed.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
-
-        self.input_container = ctk.CTkFrame(self.frame_center, fg_color=C["panel_bg"], height=60)
-        self.input_container.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 20))
-        
-        self.entry_msg = ctk.CTkEntry(self.input_container, placeholder_text="Comando...", font=("Consolas", 14), border_width=0, fg_color=C["panel_bg"], text_color=C["text_main"])
-        self.entry_msg.pack(side="left", fill="both", expand=True, padx=15, pady=10)
-        self.entry_msg.bind("<Return>", self.send_message_event)
-
-        self.btn_shush = ctk.CTkButton(self.input_container, text="XIU", width=50, fg_color=C["accent_alert"], font=("Consolas", 12, "bold"), command=self.io_handler.calar_boca)
-        self.btn_shush.pack(side="right", padx=15)
-
-    def _prevent_typing(self, event): return "break"
-
-    def copy_to_clipboard(self, text):
-        self.clipboard_clear()
-        self.clipboard_append(text)
+    def animate(self):
+        self.pulse_phase += 0.05
+        self.rotation_angle += 1.0
+        if self.rotation_angle >= 360: self.rotation_angle = 0
         self.update()
 
+    def set_state(self, state):
+        self.state = state
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        w = self.width()
+        h = self.height()
+        center = QPoint(w // 2, h // 2)
+        
+        # Tamanho dobrado (aprox 100 radius base * 2 = 200px visual)
+        base_radius = 90
+        
+        # Cores baseadas no estado (Padrão Aeon)
+        if self.state == "SPEAKING":
+            pulse = math.sin(self.pulse_phase * 4) * 8
+            main_color = QColor(0, 255, 255, 200) # Ciano
+            glow_color = QColor(0, 200, 255, 100)
+        elif self.state == "LISTENING":
+            pulse = math.sin(self.pulse_phase * 2) * 5
+            main_color = QColor(0, 255, 100, 200) # Verde
+            glow_color = QColor(50, 255, 50, 100)
+        else: # IDLE (Padrão)
+            pulse = math.sin(self.pulse_phase) * 3
+            main_color = QColor(185, 28, 28, 180) # Vermelho Sangue
+            glow_color = QColor(185, 28, 28, 70)
+
+        radius = base_radius + pulse
+        
+        # 1. Glow Externo
+        painter.setBrush(Qt.NoBrush)
+        pen_glow = QPen(glow_color)
+        pen_glow.setWidth(20)
+        painter.setPen(pen_glow)
+        painter.drawEllipse(center, int(radius + 10), int(radius + 10))
+
+        # 2. Esfera Principal
+        gradient = QRadialGradient(center, radius)
+        gradient.setColorAt(0, main_color)
+        gradient.setColorAt(0.7, main_color.darker(150))
+        gradient.setColorAt(1, QColor(0, 0, 0, 0))
+        
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(center, int(radius), int(radius))
+        
+        # 3. Anéis Tecnológicos (Rotação)
+        painter.save()
+        painter.translate(center)
+        painter.rotate(self.rotation_angle)
+        
+        arc_pen = QPen(QColor(255, 255, 255, 100))
+        arc_pen.setWidth(3)
+        painter.setPen(arc_pen)
+        painter.setBrush(Qt.NoBrush)
+        
+        r_arc = radius + 20
+        painter.drawArc(QRectF(-r_arc, -r_arc, r_arc*2, r_arc*2), 0, 60 * 16)
+        painter.drawArc(QRectF(-r_arc, -r_arc, r_arc*2, r_arc*2), 180 * 16, 60 * 16)
+        
+        painter.restore()
+
+class CyberToggle(QWidget):
+    """Chave seletora vertical (Estilo Aviação/Cyberpunk)."""
+    state_changed = pyqtSignal(bool)
+
+    def __init__(self, label, initial=True, parent=None):
+        super().__init__(parent)
+        self.label = label
+        self.state = initial
+        self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumHeight(40)
+
+    def mousePressEvent(self, event):
+        if self.isEnabled():
+            self.state = not self.state
+            self.state_changed.emit(self.state)
+            self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Cores
+        active_color = QColor(0, 255, 0) if self.isEnabled() else QColor(50, 50, 50)
+        off_color = QColor(255, 0, 0) if self.isEnabled() else QColor(30, 30, 30)
+        text_color = active_color if self.state else off_color
+        
+        # Desenha Label (Esquerda)
+        painter.setPen(text_color)
+        painter.setFont(self.font())
+        w_text = max(0, self.width() - 35) # Proteção contra largura negativa
+        painter.drawText(QRect(0, 0, w_text, self.height()), Qt.AlignRight | Qt.AlignVCenter, self.label)
+        
+        # Desenha Switch (Direita)
+        sw_x = self.width() - 30
+        sw_h = 40
+        sw_y = (self.height() - sw_h) // 2
+        
+        # Slot (Fundo)
+        painter.setBrush(QColor(0, 0, 0))
+        painter.setPen(QPen(active_color if self.state else QColor(100, 100, 100), 1))
+        painter.drawRoundedRect(sw_x, sw_y, 20, sw_h, 3, 3)
+        
+        # Alavanca (Handle)
+        handle_color = active_color if self.state else off_color
+        painter.setBrush(handle_color)
+        
+        # Posição: Cima (Ligado) ou Baixo (Desligado)
+        handle_y = sw_y + 2 if self.state else sw_y + sw_h - 18
+        painter.drawRoundedRect(sw_x + 3, handle_y, 14, 16, 2, 2)
+
+class CyberButton(QWidget):
+    """Botão customizado desenhado via código (sem estilo padrão de OS)."""
+    clicked = pyqtSignal()
+
+    def __init__(self, icon_type="X", color=QColor(0, 255, 0), parent=None):
+        super().__init__(parent)
+        self.icon_type = icon_type
+        self.base_color = color
+        self.hover = False
+        self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumSize(60, 60)
+
+    def enterEvent(self, event):
+        self.hover = True
+        self.update()
+
+    def leaveEvent(self, event):
+        self.hover = False
+        self.update()
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        rect = self.rect()
+        center = rect.center()
+        # Raio baseado no menor lado para garantir que caiba
+        radius = min(rect.width(), rect.height()) // 2 - 8
+        
+        # Cor dinâmica (brilha no hover)
+        color = self.base_color.lighter(130) if self.hover else self.base_color
+        bg_color = QColor(0, 20, 0, 100) if self.hover else QColor(0, 0, 0, 200)
+
+        # 1. Fundo e Borda
+        painter.setBrush(bg_color)
+        painter.setPen(QPen(color, 2))
+        painter.drawEllipse(center, radius, radius)
+        
+        # 2. Ícone
+        painter.setPen(QPen(color, 3))
+        
+        if self.icon_type == "X":
+            r = radius // 2
+            painter.drawLine(center.x() - r, center.y() - r, center.x() + r, center.y() + r)
+            painter.drawLine(center.x() + r, center.y() - r, center.x() - r, center.y() + r)
+        elif self.icon_type == "MIC":
+            painter.drawRoundedRect(center.x()-6, center.y()-10, 12, 20, 5, 5)
+            painter.drawLine(center.x()-10, center.y()+5, center.x()+10, center.y()+5)
+        elif self.icon_type == "CFG":
+            painter.drawEllipse(center, radius//3, radius//3) # Engrenagem simples
+        elif self.icon_type == "SPHERE":
+            # Mini esfera
+            painter.setBrush(self.base_color)
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(center, radius//2, radius//2)
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(self.base_color, 1))
+            painter.drawEllipse(center, radius-2, radius-2)
+        elif self.icon_type == "SKULL":
+            # Caveira simplificada
+            painter.setPen(QPen(self.base_color, 2))
+            # Cranio
+            painter.drawEllipse(center.x()-8, center.y()-10, 16, 14)
+            # Mandibula
+            painter.drawRect(center.x()-5, center.y()+4, 10, 6)
+            # Olhos
+            painter.drawPoint(center.x()-3, center.y()-4)
+            painter.drawPoint(center.x()+3, center.y()-4)
+
+class AeonTerminal(QMainWindow):
+    closed_signal = pyqtSignal()
+
+    def __init__(self, context=None):
+        super().__init__()
+        self.setWindowTitle("AEON V86 // TERMINAL MODE")
+        self.resize(1200, 800)
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        # Estilo Global (CSS PyQt)
+        # Fundo preto, letras verdes, bordas verdes
+        self.setStyleSheet("""
+            QWidget { color: #00FF00; font-family: 'Consolas'; font-size: 14px; }
+            QFrame { background-color: #000000; border: 1px solid #00FF00; }
+            QTextEdit { background-color: #000000; border: 1px solid #00FF00; color: #00FF00; }
+            QLineEdit { background-color: #000000; border: 1px solid #00FF00; color: #00FF00; padding: 5px; }
+            QListWidget { background-color: #000000; border: 1px solid #00FF00; color: #00FF00; }
+            QLabel { border: none; background: transparent; color: #00FF00; }
+            QProgressBar { border: 1px solid #00FF00; background: #000000; height: 10px; }
+            QProgressBar::chunk { background: #00FF00; }
+        """)
+
+        if context:
+            # Usa o contexto já carregado da Esfera (Rápido e sem crash)
+            self.core_context = context
+            self.config_manager = context.get('config_manager')
+            self.io_handler = context.get('io_handler')
+            self.brain = context.get('brain')
+            self.context_manager = context.get('context')
+            self.module_manager = context.get('module_manager')
+            # Atualiza a referência da GUI no contexto para este terminal
+            self.core_context['gui'] = self
+        else:
+            # Modo Standalone (Carrega tudo do zero)
+            self.config_manager = ConfigManager()
+            self.io_handler = IOHandler(self.config_manager.system_data, None)
+            self.brain = Brain(self.config_manager)
+            self.context_manager = ContextManager()
+            self.module_manager = None
+            self.core_context = {
+                "config_manager": self.config_manager,
+                "io_handler": self.io_handler,
+                "brain": self.brain,
+                "context": self.context_manager,
+                "gui": self
+            }
+
+        # --- Layout ---
+        central = QWidget()
+        # Fundo geral quase sólido (~95% opaco)
+        central.setStyleSheet("background-color: rgba(0, 0, 0, 240); border: 1px solid #00FF00;")
+        self.setCentralWidget(central)
+        
+        # GRID LAYOUT (3 Colunas x 2 Linhas)
+        grid = QGridLayout(central)
+        grid.setContentsMargins(10, 10, 10, 10)
+        grid.setSpacing(15)
+
+        # --- LINHA 0 (Superior - 2/3 da tela) ---
+        
+        # 0,0: Log do Sistema (Retangular Alto)
+        self.log_display = QTextEdit()
+        self.log_display.setReadOnly(True)
+        self.log_display.setPlaceholderText("AGUARDANDO LOGS DO SISTEMA...")
+        grid.addWidget(self.log_display, 0, 0)
+
+        # 0,1: Esfera (Centralizada)
+        self.sphere_container = QFrame()
+        self.sphere_container.setStyleSheet("border: none; background: transparent;")
+        sphere_layout = QVBoxLayout(self.sphere_container)
+        self.sphere = BigSphere()
+        sphere_layout.addWidget(self.sphere)
+        grid.addWidget(self.sphere_container, 0, 1)
+
+        # 0,2: Placeholder (Vazio)
+        self.placeholder = QFrame()
+        lbl_place = QLabel("PLACEHOLDER", self.placeholder)
+        lbl_place.setAlignment(Qt.AlignCenter)
+        ph_layout = QVBoxLayout(self.placeholder)
+        ph_layout.addWidget(lbl_place)
+        grid.addWidget(self.placeholder, 0, 2)
+
+        # --- LINHA 1 (Inferior - 1/3 da tela) ---
+
+        # 1,0: Módulos (Quadrado)
+        self.module_list = QListWidget()
+        grid.addWidget(self.module_list, 1, 0)
+
+        # 1,1: Chat/Input (Abaixo da Esfera)
+        self.chat_container = QFrame()
+        chat_layout = QVBoxLayout(self.chat_container)
+        
+        self.chat_display = QTextEdit()
+        self.chat_display.setReadOnly(True)
+        self.chat_display.setStyleSheet("border: none; background: transparent;")
+        chat_layout.addWidget(self.chat_display)
+        
+        self.input_box = QLineEdit()
+        self.input_box.setPlaceholderText("Digite aqui...")
+        self.input_box.returnPressed.connect(self.on_submit)
+        chat_layout.addWidget(self.input_box)
+        
+        grid.addWidget(self.chat_container, 1, 1)
+
+        # 1,2: Painel de Controle (Botões Customizados)
+        self.back_panel = QFrame()
+        ctrl_layout = QGridLayout(self.back_panel)
+        ctrl_layout.setContentsMargins(10, 10, 10, 10)
+        ctrl_layout.setSpacing(5)
+        
+        # --- Toggles Verticais ---
+        self.tog_mic = CyberToggle("MIC", True)
+        self.tog_mic.state_changed.connect(self.on_mic_toggle)
+        
+        self.tog_speech = CyberToggle("VOZ", True)
+        self.tog_speech.state_changed.connect(self.on_speech_toggle)
+        
+        self.tog_dummy = CyberToggle("---", False)
+        self.tog_dummy.setEnabled(False) # Desativado
+        
+        self.tog_online = CyberToggle("ONLINE", True)
+        self.tog_online.state_changed.connect(self.on_online_toggle)
+        
+        # Posicionamento no Grid
+        # Linha 0: Toggles menores
+        ctrl_layout.addWidget(self.tog_mic, 0, 0)
+        ctrl_layout.addWidget(self.tog_speech, 0, 1)
+        ctrl_layout.addWidget(self.tog_dummy, 0, 2)
+        
+        # Coluna 3 (Direita): Toggle Offline ocupando 2 linhas (Vertical)
+        ctrl_layout.addWidget(self.tog_online, 0, 3, 2, 1)
+        
+        # --- Botões Inferiores (Esfera e Caveira) ---
+        self.btn_sphere = CyberButton("SPHERE", QColor(0, 255, 255))
+        self.btn_sphere.clicked.connect(self.return_to_sphere)
+
+        self.btn_kill = CyberButton("SKULL", QColor(255, 0, 0))
+        self.btn_kill.clicked.connect(self.force_quit)
+        
+        # Linha 1: Botões
+        ctrl_layout.addWidget(self.btn_sphere, 1, 0)
+        ctrl_layout.addWidget(self.btn_kill, 1, 1)
+        # (1, 2) fica vazio para espaçamento
+        
+        grid.addWidget(self.back_panel, 1, 2)
+
+        # Configuração de proporção da Grade
+        grid.setRowStretch(0, 2) # Linha de cima (2/3)
+        grid.setRowStretch(1, 1) # Linha de baixo (1/3)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
+
+        # Timers
+        self.timer_vitals = QTimer(self)
+        self.timer_vitals.timeout.connect(self.update_vitals)
+        self.timer_vitals.start(1000)
+        
+        # Init Modules Delayed
+        if not self.module_manager:
+            QTimer.singleShot(100, self.init_modules)
+        else:
+            self.refresh_module_list()
+
+    def append_log(self, text):
+        self.log_display.moveCursor(QTextCursor.End)
+        # Adiciona timestamp simples
+        self.log_display.insertPlainText(text)
+        self.log_display.moveCursor(QTextCursor.End)
+
+    def init_modules(self):
+        self.add_message("Carregando módulos...", "SISTEMA")
+        try:
+            self.module_manager = ModuleManager(self.core_context)
+            self.core_context["module_manager"] = self.module_manager
+            self.module_manager.load_modules()
+            self.refresh_module_list()
+            self.add_message("Módulos carregados.", "SISTEMA")
+        except Exception as e:
+            self.add_message(f"Erro: {e}", "ERRO")
+
+    def refresh_module_list(self):
+        self.module_list.clear()
+        if self.module_manager:
+            for mod in self.module_manager.get_loaded_modules():
+                self.module_list.addItem(f"• {mod.name}")
+
+    def update_vitals(self):
+        cpu = psutil.cpu_percent()
+        # self.cpu_bar.setValue(int(cpu)) # Removido temporariamente
+
     def add_message(self, text, sender="VOCÊ"):
-        msg_frame = ctk.CTkFrame(self.chat_feed, fg_color=C["bg"])
-        msg_frame.pack(fill="x", pady=5)
-        align, bubble_color, text_color = ("e", C["user_bubble"], "white") if sender == "VOCÊ" else ("w", C["bot_bubble"], C["text_main"])
+        # Log no painel superior esquerdo (Manual, seguro)
+        self.append_log(f"[{sender}] {text}\n")
+        
+        # Adiciona no Chat Visual (Tela do meio)
+        color = "#00FF00"
+        if sender == "VOCÊ": color = "#FFFFFF"
+        if sender == "AEON": color = "#00FFFF"
+        if sender == "ERRO": color = "#FF0000"
+        
+        self.chat_display.append(f"<span style='color:{color}'><b>{sender}:</b> {text}</span>")
+        # Auto scroll
+        sb = self.chat_display.verticalScrollBar()
+        sb.setValue(sb.maximum())
+        
+        if sender == "AEON":
+            self.sphere.set_state("SPEAKING")
+            # Volta para IDLE após um tempo estimado
+            QTimer.singleShot(max(2000, len(text) * 50), lambda: self.sphere.set_state("IDLE"))
 
-        ctk.CTkLabel(msg_frame, text=sender, font=("Consolas", 10, "bold"), text_color=C["text_dim"]).pack(anchor=align, padx=5)
+    def on_submit(self):
+        txt = self.input_box.text().strip()
+        if not txt: return
+        
+        self.add_message(txt, "VOCÊ")
+        self.input_box.clear()
+        
+        threading.Thread(target=self.process_command, args=(txt,), daemon=True).start()
 
-        parts = text.split("```")
-        for i, part in enumerate(parts):
-            if not part.strip(): continue
-            is_code = i % 2 != 0
-            bg_color = C["code_bg"] if is_code else bubble_color
-            border_c = "#30363d" if is_code else bg_color 
-
-            parent_widget = msg_frame
-            
-            if is_code:
-                code_container = ctk.CTkFrame(msg_frame, fg_color="transparent")
-                code_container.pack(fill="x", pady=2, padx=5)
-                header = ctk.CTkFrame(code_container, fg_color=bg_color, corner_radius=6, height=25)
-                header.pack(fill="x", pady=(0,0))
-                ctk.CTkButton(header, text="📋 Copiar", width=60, height=20, font=("Consolas", 10), fg_color="#238636", hover_color="#2ea043", command=lambda t=part.strip(): self.copy_to_clipboard(t)).pack(side="right", padx=5, pady=2)
-                parent_widget = code_container
-
-            textbox = ctk.CTkTextbox(parent_widget, 
-                                     font=("Consolas" if is_code else "Roboto", 13 if is_code else 14), 
-                                     fg_color=bg_color, 
-                                     text_color="#3fb950" if is_code else text_color,
-                                     border_width=1 if is_code else 0,
-                                     border_color=border_c,
-                                     corner_radius=12 if not is_code else 6,
-                                     wrap="word" if not is_code else "none")
-            
-            textbox.insert("0.0", part.strip())
-            num_lines = len(part.strip().split('\n'))
-            height = min(num_lines * 22 + 20, 400 if is_code else 600)
-            textbox.configure(height=height)
-            textbox.bind("<KeyPress>", self._prevent_typing)
-            textbox.bind("<KeyRelease>", self._prevent_typing)
-            textbox.pack(anchor=align if not is_code else "center", pady=2 if not is_code else 0, padx=5 if not is_code else 0, ipady=5, fill="x" if is_code else "none")
-            
-        self.after(100, lambda: self.chat_feed._parent_canvas.yview_moveto(1.0))
-
-    def send_message_event(self, event=None):
-        txt = self.entry_msg.get()
-        if txt:
-            self.add_message(txt, "VOCÊ")
-            self.entry_msg.delete(0, "end")
-            threading.Thread(target=self.process_in_background, args=(txt,), daemon=True).start()
-
-    def process_in_background(self, txt):
+    def process_command(self, txt):
+        if not self.module_manager: return
         try:
             response = self.module_manager.route_command(txt)
-            self.after(0, lambda: self.add_message(response, "AEON"))
-            self.after(0, lambda: self.io_handler.falar(response))
+            # Usa QTimer para atualizar GUI da thread principal
+            QTimer.singleShot(0, lambda: self.add_message(response, "AEON"))
+            QTimer.singleShot(0, lambda: self.io_handler.falar(response))
         except Exception as e:
-            self.after(0, lambda: self.add_message(f"Erro Crítico: {e}", "SISTEMA"))
+            QTimer.singleShot(0, lambda: self.add_message(str(e), "ERRO"))
 
-    def toggle_mic(self):
-        threading.Thread(target=self.process_in_background, args=("ativar escuta",), daemon=True).start()
+    def set_status(self, status):
+        pass # Compatibilidade
 
-    def setup_right_panel(self):
-        self.frame_right = ctk.CTkFrame(self, fg_color=C["panel_bg"], corner_radius=0)
-        self.frame_right.grid(row=0, column=2, sticky="nsew", padx=(1,0), pady=0)
-        
-        self.tabs = ctk.CTkTabview(self.frame_right, fg_color=C["panel_bg"])
-        self.tabs.pack(fill="both", expand=True, padx=10, pady=10)
-        self.tabs.add("WORKSPACE")
-        self.tabs.add("LOGS")
+    def set_online_status(self, online):
+        pass # Compatibilidade
 
-        self.workspace_frame = self.tabs.tab("WORKSPACE")
-        self.workspace_frame.grid_columnconfigure(0, weight=1)
-        self.workspace_frame.grid_rowconfigure(1, weight=1)
+    def on_mic_toggle(self, state):
+        # state = True (ON) -> Mic Ativado
+        if self.context_manager:
+            self.context_manager.set('mic_enabled', state)
+        self.add_message(f"Microfone {'ATIVADO' if state else 'MUTADO'}.", "SISTEMA")
 
-        button_frame = ctk.CTkFrame(self.workspace_frame, fg_color="transparent")
-        button_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-        button_frame.grid_columnconfigure(0, weight=1)
-        button_frame.grid_columnconfigure(1, weight=1)
+    def on_speech_toggle(self, state):
+        # state = True (ON) -> Voz Ativada
+        if self.io_handler:
+            self.io_handler.muted = not state
+            if not state: self.io_handler.calar_boca()
+        self.add_message(f"Voz {'ATIVADA' if state else 'DESATIVADA'}.", "SISTEMA")
 
-        refresh_btn = ctk.CTkButton(button_frame, text="Refresh", font=("Consolas", 12), command=self.refresh_workspace_view)
-        refresh_btn.grid(row=0, column=0, sticky="ew", padx=(0, 2))
-        
-        open_folder_btn = ctk.CTkButton(button_frame, text="Abrir Pasta", font=("Consolas", 12), command=self.open_workspace_folder)
-        open_folder_btn.grid(row=0, column=1, sticky="ew", padx=(2, 0))
-
-        self.workspace_tree_frame = ctk.CTkScrollableFrame(self.workspace_frame, fg_color="transparent")
-        self.workspace_tree_frame.grid(row=1, column=0, sticky="nsew")
-
-        self.after(200, self.refresh_workspace_view)
-
-    def open_workspace_folder(self):
-        try:
-            if os.path.exists(self.workspace_path):
-                os.startfile(self.workspace_path)
+    def on_online_toggle(self, state):
+        # state = True (ON) -> ONLINE (Verde/Cima)
+        # state = False (OFF) -> OFFLINE (Vermelho/Baixo)
+        if self.brain:
+            if state:
+                self.brain.online = True
+                self.brain._conectar()
+                status = "ONLINE" if self.brain.online else "OFFLINE (Falha)"
+                self.add_message(f"Modo {status} ativado.", "SISTEMA")
             else:
-                print(f"[GUI_ERROR] Workspace não encontrado: {self.workspace_path}")
-        except Exception as e:
-            print(f"[GUI_ERROR] Erro ao abrir pasta: {e}")
+                self.brain.online = False
+                self.add_message("Modo OFFLINE forçado.", "SISTEMA")
 
-    def refresh_workspace_view(self):
-        for widget in self.workspace_tree_frame.winfo_children():
-            widget.destroy()
-        
-        if os.path.exists(self.workspace_path):
-            self._populate_workspace_tree(self.workspace_tree_frame, self.workspace_path, indent=0)
+    def force_quit(self):
+        QApplication.quit()
 
-    def _populate_workspace_tree(self, parent, path, indent=0):
-        try:
-            for item in sorted(os.listdir(path)):
-                item_path = os.path.join(path, item)
-                item_frame = ctk.CTkFrame(parent, fg_color="transparent")
-                item_frame.pack(fill="x", anchor="w")
-                icon = "📁" if os.path.isdir(item_path) else "📄"
-                label_text = f"{' ' * indent * 2}{icon} {item}"
-                ctk.CTkLabel(item_frame, text=label_text, font=("Consolas", 12), text_color=C["text_main"]).pack(side="left", padx=5, pady=2)
-                if os.path.isdir(item_path):
-                    self._populate_workspace_tree(parent, item_path, indent + 1)
-        except: pass
+    def return_to_sphere(self):
+        self.hide()
+        self.closed_signal.emit()
 
-    def cleanup_temp_files(self):
-        """Limpa arquivos temporários (áudio e cache) para manter o pendrive leve."""
-        try:
-            # Ajuste de caminho: sobe um nível para achar a raiz
-            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            
-            # 1. Limpa Cache de Áudio (bagagem/temp)
-            audio_temp = os.path.join(root_dir, "bagagem", "temp")
-            if os.path.exists(audio_temp):
-                for f in os.listdir(audio_temp):
-                    fp = os.path.join(audio_temp, f)
-                    try:
-                        if os.path.isfile(fp):
-                            os.remove(fp)
-                    except: pass
+    def closeEvent(self, event):
+        event.ignore()
+        self.hide()
+        self.closed_signal.emit()
 
-            # 2. Limpa __pycache__ recursivamente
-            for root, dirs, files in os.walk(root_dir):
-                for d in list(dirs):
-                    if d == "__pycache__":
-                        try:
-                            shutil.rmtree(os.path.join(root, d))
-                            dirs.remove(d)
-                        except: pass
-            print("[SISTEMA] Limpeza automática concluída.")
-        except Exception as e:
-            print(f"[SISTEMA] Erro na limpeza automática: {e}")
-
-    def on_closing(self):
-        """Executa limpeza e encerra o programa."""
-        self.running = False
-        self.cleanup_temp_files()
-        self.destroy()
-        sys.exit(0)
-
-    def loop_vitals(self):
-        if not self.running: return
-        try:
-            cpu = psutil.cpu_percent(interval=None)
-            ram = psutil.virtual_memory().percent
-            self.after(0, self.update_vitals, cpu, ram)
-        except: pass
-        self.after(1000, self.loop_vitals)
-
-    def update_vitals(self, cpu, ram):
-        try:
-            self.bar_cpu.set(cpu / 100)
-            self.lbl_cpu.configure(text=f"CPU: {cpu}%")
-            self.bar_ram.set(ram / 100)
-            self.lbl_ram.configure(text=f"RAM: {ram}%")
-            if hasattr(self, 'brain') and self.brain:
-                online = getattr(self.brain, 'online', False)
-                cor_online = C["accent_primary"] if online else C["accent_alert"]
-                self.led_online.canvas.itemconfig(self.led_online.led, fill=cor_online)
-        except: pass
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = AeonTerminal()
+    window.show()
+    sys.exit(app.exec_())

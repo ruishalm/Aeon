@@ -26,3 +26,6 @@ kokoro-onnx
 soundfile
 beautifulsoup4
 feedparser
+pywin32
+
+keyboard

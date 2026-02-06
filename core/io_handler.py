@@ -26,10 +26,12 @@ class IOHandler:
     """
     Gerencia áudio com proteção contra falhas de DLL e Threads.
     """
-    def __init__(self, config: dict, installer=None):
+    def __init__(self, config: dict, context_manager, installer=None):
         self.config = config if config else {}
         self.installer = installer
+        self.context_manager = context_manager
         self.parar_fala = False
+        self.muted = False
         self.audio_lock = threading.Lock()
         
         # Atributos para lazy loading
@@ -96,22 +98,28 @@ class IOHandler:
                 pygame.mixer.music.load(arquivo)
                 pygame.mixer.music.play()
                 log_display(f"[IO_HANDLER] Tocando: {arquivo}")
+                # Espera tocar
+                while pygame.mixer.music.get_busy():
+                    if self.parar_fala:
+                        pygame.mixer.music.stop()
+                        break
+                    time.sleep(0.1)
             except pygame.error as e:
-                # Se falhar com music, tenta com Sound (mais flexível)
+                # Se falhar com music, tenta com Sound (mais flexível com WAV)
                 log_display(f"Erro com music.load(), tentando Sound.play(): {e}")
                 try:
                     som = pygame.mixer.Sound(arquivo)
-                    som.play()
+                    som_channel = som.play()
+                    log_display(f"[IO_HANDLER] Tocando com Sound: {arquivo}")
+                    # Espera o som tocar
+                    while som_channel.get_busy():
+                        if self.parar_fala:
+                            som_channel.stop()
+                            break
+                        time.sleep(0.1)
                 except Exception as e2:
-                    log_display(f"Erro playback final: {e2}")
+                    log_display(f"Erro playback final (Sound): {e2}")
                     return
-
-        # Espera tocar sem travar a thread principal
-        while pygame.mixer.music.get_busy():
-            if self.parar_fala:
-                pygame.mixer.music.stop()
-                break
-            time.sleep(0.1)
         
         # Limpa arquivo depois
         threading.Thread(target=self._limpar_seguro, args=(arquivo,), daemon=True).start()
@@ -127,7 +135,19 @@ class IOHandler:
 
     def falar(self, texto: str):
         """Inicia a geração e reprodução da fala em uma nova thread."""
+        if self.muted: return
         if not texto: return
+        try:
+            # Apenas registra no log se o modo oculto NÃO estiver ativo
+            if self.context_manager and not self.context_manager.get('stealth_mode'):
+                print(f"[AEON_TTS] {texto}")
+                with open("bagagem/temp/conversation.log", "a", encoding="utf-8") as f:
+                    f.write(f"AEON_SPEAK: {texto}\n")
+            else:
+                # Mesmo em modo oculto, imprime no console para depuração
+                print(f"[AEON_TTS_STEALTH] {texto}")
+        except Exception:
+            pass
         
         # Roda o processo de fala em background para não travar
         thread_fala = threading.Thread(target=self._falar_worker, args=(texto,), daemon=True)
@@ -195,3 +215,18 @@ class IOHandler:
         self.parar_fala = True
         try: pygame.mixer.music.stop()
         except: pass
+
+    def cleanup_temp_files(self):
+        """Limpa arquivos de áudio (.wav, .mp3) temporários."""
+        log_display("Limpando arquivos de áudio temporários...")
+        for filename in os.listdir(self.temp_audio_path):
+            # Foco apenas em arquivos de áudio para segurança
+            if filename.endswith(('.wav', '.mp3')):
+                file_path = os.path.join(self.temp_audio_path, filename)
+                try:
+                    os.remove(file_path)
+                    log_display(f"  - Removido: {filename}")
+                except OSError as e:
+                    # Imprime o erro específico, muito útil para depurar arquivos bloqueados
+                    log_display(f"  - ERRO ao remover {filename}: {e}")
+        log_display("Limpeza de áudios concluída.")

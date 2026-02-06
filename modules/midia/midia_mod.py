@@ -13,12 +13,11 @@ class MidiaModule(AeonModule):
     def __init__(self, core_context):
         super().__init__(core_context)
         self.name = "Midia"
-        # Gatilhos gerais de midia e gatilhos especificos do Spotify
+        # Gatilhos gerais de midia (spotify deveria ser aberto via Sistema.abrir_aplicativo)
         self.triggers = [
-            "tocar", "pausar", "continuar", "play",
+            "tocar", "toca", "pausar", "continuar", "play",
             "proxima", "avancar", "next",
-            "anterior", "voltar", "previous",
-            "spotify"
+            "anterior", "voltar", "previous"
         ]
 
     @property
@@ -43,9 +42,67 @@ class MidiaModule(AeonModule):
         """Limpa recursos ao descarregar."""
         return True
 
+    def get_tools(self) -> List[Dict[str, any]]:
+        """Expõe ferramentas de mídia para o Brain."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "Midia.play_pause",
+                    "description": "Reproduz ou pausa a mídia atual.",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Midia.proxima_faixa",
+                    "description": "Toca a próxima faixa de música.",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Midia.faixa_anterior",
+                    "description": "Volta à faixa anterior de música.",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "Midia.tocar_no_spotify",
+                    "description": "Toca uma música específica no Spotify.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "song_name": {"type": "string", "description": "Nome da música a tocar."}
+                        },
+                        "required": ["song_name"]
+                    }
+                }
+            }
+        ]
+
+    def play_pause(self) -> str:
+        """Ferramenta: play/pause."""
+        pyautogui.press('playpause')
+        return "Mídia pausada/retomada."
+
+    def proxima_faixa(self) -> str:
+        """Ferramenta: próxima faixa."""
+        pyautogui.press('nexttrack')
+        return "Próxima faixa."
+
+    def faixa_anterior(self) -> str:
+        """Ferramenta: faixa anterior."""
+        pyautogui.press('prevtrack')
+        return "Faixa anterior."
+
     def process(self, command: str) -> str:
         # Logica de Controle de Midia Generico
-        media_play = ["tocar", "pausar", "continuar", "retomar", "play"]
+        media_play = ["tocar", "toca", "pausar", "continuar", "retomar", "play"]
         media_next = ["proxima", "avancar", "next", "proxima"]
         media_prev = ["anterior", "voltar", "previous"]
 
@@ -67,7 +124,7 @@ class MidiaModule(AeonModule):
                 song_name = command.split("tocar")[-1].replace("no spotify", "").strip()
                 if song_name:
                     self.tocar_no_spotify(song_name)
-                    return f"Entendido. Vou tocar {song_name} no Spotify."
+                    return f"Tocando {song_name} no Spotify."
                 else:
                     return "Nao entendi o nome da musica que voce quer tocar."
         

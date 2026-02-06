@@ -1,68 +1,19 @@
 import sys
 import math
+from pynput import keyboard
 from PyQt5.QtWidgets import (QWidget, QLabel, QVBoxLayout, QApplication, 
                              QLineEdit, QDialog, QGraphicsDropShadowEffect)
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPoint, QRectF
 from PyQt5.QtGui import (QPainter, QColor, QRadialGradient, QPen, 
                          QFont, QBrush, QLinearGradient)
 
-class InputDialog(QDialog):
-    """
-    Caixa de Texto Flutuante (Estilo Cyberpunk).
-    Ativada por Ctrl + Shift + A.
-    """
-    def __init__(self, parent=None, callback=None):
-        super().__init__(parent)
-        self.callback = callback
-        
-        # Remove bordas e deixa transparente
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.resize(500, 80)
-        
-        layout = QVBoxLayout()
-        self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("Digite um comando para o Aeon...")
-        
-        # Estilo CSS da caixa
-        self.input_field.setStyleSheet("""
-            QLineEdit { 
-                background-color: rgba(10, 10, 20, 230); 
-                color: #00FFFF; 
-                border: 2px solid #00FFFF; 
-                border-radius: 10px; 
-                padding: 10px; 
-                font-family: 'Segoe UI';
-                font-size: 16px;
-                selection-background-color: #00FFFF;
-                selection-color: black;
-            }
-        """)
-        
-        # Efeito de brilho (Glow)
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(20)
-        shadow.setColor(QColor(0, 255, 255))
-        shadow.setOffset(0, 0)
-        self.input_field.setGraphicsEffect(shadow)
-
-        self.input_field.returnPressed.connect(self.send_text)
-        layout.addWidget(self.input_field)
-        self.setLayout(layout)
-        
-        # Foca no texto assim que abre
-        self.input_field.setFocus()
-
-    def send_text(self):
-        text = self.input_field.text()
-        if text and self.callback:
-            self.callback(text)
-        self.close()
+from core.gui_app import AeonTerminal
 
 class SphereUI(QWidget):
     # Sinal para atualizar a GUI de forma segura (Thread-Safe)
     update_signal = pyqtSignal(str, str)
     status_signal = pyqtSignal(str)
+    hotkey_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -80,6 +31,7 @@ class SphereUI(QWidget):
         self.is_listening = False
         self.pulse_phase = 0.0
         self.rotation_angle = 0.0
+        self.terminal_window = None
         self.status_text = "BOOT"
         
         # --- Layout de Texto ---
@@ -92,25 +44,26 @@ class SphereUI(QWidget):
         self.lbl_status.setStyleSheet("color: rgba(255,255,255,180); font-weight: bold; font-family: Segoe UI; letter-spacing: 2px;")
         self.layout.addWidget(self.lbl_status)
         
-        # Espaçador
-        self.layout.addStretch()
-        
-        # 2. Legenda (Embaixo da Esfera)
-        self.lbl_caption = QLabel("")
+        # 2. Legenda (Balao de fala) - criada como widget filho e posicionada dinamicamente
+        self.lbl_caption = QLabel("", self)
         self.lbl_caption.setAlignment(Qt.AlignCenter)
         self.lbl_caption.setStyleSheet("""
             color: #00FFFF; 
             font-size: 11pt; 
-            background-color: rgba(0,0,0,150); 
-            border-radius: 8px; 
-            padding: 5px 10px;
+            background-color: rgba(0,0,0,180); 
+            border-radius: 10px; 
+            padding: 6px 12px;
         """)
         self.lbl_caption.setWordWrap(True)
-        self.lbl_caption.setMaximumWidth(380)
+        self.lbl_caption.setMaximumWidth(320)
         self.lbl_caption.hide() # Começa escondido
-        self.layout.addWidget(self.lbl_caption)
+        # Mantemos o spacer abaixo para posicionamento visual
+        self.layout.addStretch()
         
         self.setLayout(self.layout)
+
+        # Mic visualizer level
+        self.mic_level = 0.0
 
         # --- Timer de Animação (60 FPS) ---
         self.timer = QTimer(self)
@@ -121,6 +74,10 @@ class SphereUI(QWidget):
         self.update_signal.connect(self._update_gui_thread)
         self.status_signal.connect(self._update_status_thread)
 
+        # Configura Hotkey Global (Restauração)
+        self.hotkey_signal.connect(self.open_terminal)
+        self._setup_global_hotkey()
+
     def center_screen(self):
         screen = QApplication.primaryScreen().geometry()
         x = (screen.width() - self.width()) // 2
@@ -130,20 +87,68 @@ class SphereUI(QWidget):
     def set_logic_callback(self, callback):
         self.logic_callback = callback
 
+    def _setup_global_hotkey(self):
+        """Inicia o listener global de teclado em uma thread separada."""
+        try:
+            self.hotkey_listener = keyboard.GlobalHotKeys({'<ctrl>+<shift>+a': self.hotkey_signal.emit})
+            self.hotkey_listener.start()
+        except Exception as e:
+            print(f"Erro ao iniciar hotkey global: {e}")
+
     # --- INPUT DO TECLADO (FARMING) ---
     def keyPressEvent(self, event):
         # Atalho: Ctrl + Shift + A
         if event.modifiers() == (Qt.ControlModifier | Qt.ShiftModifier) and event.key() == Qt.Key_A:
-            self.open_input_box()
+            self.open_terminal()
         # Atalho: ESC para fechar
         elif event.key() == Qt.Key_Escape:
             self.close()
 
-    def open_input_box(self):
-        dialog = InputDialog(self, self.logic_callback)
-        # Posiciona a caixa um pouco abaixo da esfera
-        dialog.move(self.x() + 25, self.y() + 350)
-        dialog.exec_()
+    def closeEvent(self, event):
+        if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
+            self.hotkey_listener.stop()
+        event.accept()
+
+    # --- MODO TERMINAL ---
+    def open_terminal(self):
+        """Abre a interface completa (AeonTerminal) no mesmo processo."""
+        print("[GUI] Abrindo terminal...")
+        if self.terminal_window and self.terminal_window.isVisible():
+            return
+
+        # Context retrieval logic
+        context = None
+        if self.logic_callback and hasattr(self.logic_callback, '__self__'):
+            logic = self.logic_callback.__self__
+            if hasattr(logic, 'module_manager') and logic.module_manager:
+                context = logic.module_manager.core_context
+            
+        try:
+            if not self.terminal_window:
+                self.terminal_window = AeonTerminal(context)
+                self.terminal_window.closed_signal.connect(self.on_terminal_closed)
+            
+            self.hide()
+            self.terminal_window.show()
+            self.terminal_window.raise_()
+            self.terminal_window.activateWindow()
+            self.set_status("TERMINAL")
+        except Exception as e:
+            print(f"[GUI] ERRO AO ABRIR TERMINAL: {e}")
+            import traceback
+            traceback.print_exc()
+            self.show() # Restaura a esfera se falhar
+
+    def on_terminal_closed(self):
+        """Chamado quando o terminal é fechado (botão voltar)."""
+        # Restaura o contexto da GUI para a Esfera (para o IOHandler falar aqui)
+        if self.terminal_window and hasattr(self.terminal_window, 'core_context'):
+             if self.terminal_window.core_context:
+                 self.terminal_window.core_context['gui'] = self
+        
+        self.show()
+        self.activateWindow()
+        self.set_status("ONLINE")
 
     # --- Métodos de Atualização ---
     def set_status(self, text):
@@ -159,14 +164,26 @@ class SphereUI(QWidget):
         else:
             self.is_listening = False
 
+    def set_module_list(self, modules):
+        """Recebe a lista de módulos (compatibilidade)."""
+        pass 
+
     def add_message(self, text, sender="SISTEMA"):
         self.update_signal.emit(text, sender)
 
     def _update_gui_thread(self, text, sender):
         prefix = f"{sender}: " if sender != "SISTEMA" else ""
         self.lbl_caption.setText(f"{prefix}{text}")
-        self.lbl_caption.show()
         self.lbl_caption.adjustSize()
+        # Posiciona o balao acima da esfera (como quadrinho)
+        center_x = self.width() // 2
+        center_y = self.height() // 2
+        base_radius = 45
+        lbl_w = self.lbl_caption.width()
+        lbl_h = self.lbl_caption.height()
+        # Move para ficar centrado e acima da esfera
+        self.lbl_caption.move(center_x - lbl_w // 2, center_y - base_radius - lbl_h - 12)
+        self.lbl_caption.show()
         
         if sender == "AEON":
             self.is_speaking = True
@@ -185,7 +202,7 @@ class SphereUI(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         
         center = QPoint(self.width() // 2, self.height() // 2)
-        base_radius = 90
+        base_radius = 45  # reduzido em 50%
         
         # --- Definição de Cores por Estado ---
         if self.is_speaking:
@@ -243,14 +260,50 @@ class SphereUI(QWidget):
         
         painter.restore()
 
-        # 4. Marcador Visual (Online/Offline) - Pequeno ponto no canto
+        # 4. Mic visualizer: anel oscilante em torno da esfera
+        try:
+            amp = max(0.0, min(1.0, float(self.mic_level)))
+        except Exception:
+            amp = 0.0
+        mic_ring_radius = int(radius + 18 + amp * 18)
+        mic_pen = QPen(QColor(0, 200, 255, 120)) if self.is_listening else QPen(QColor(200, 200, 200, 60))
+        mic_pen.setWidth(4)
+        painter.setPen(mic_pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(center, mic_ring_radius, mic_ring_radius)
+
+        # 5. Marcador Visual (Online/Offline) - Pequeno ponto no canto
         painter.setBrush(status_dot)
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(self.width() - 40, 40, 8, 8)
 
-    # Arrastar janela
+    def set_mic_level(self, level: float):
+        """Atualiza o nivel do microfone (0.0-1.0) para a visualizacao."""
+        try:
+            self.mic_level = max(0.0, min(1.0, float(level)))
+        except Exception:
+            self.mic_level = 0.0
+
+    # Arastar janela
     def mousePressEvent(self, event): self.oldPos = event.globalPos()
     def mouseMoveEvent(self, event):
         delta = QPoint(event.globalPos() - self.oldPos)
         self.move(self.x() + delta.x(), self.y() + delta.y())
         self.oldPos = event.globalPos()
+
+    def toggle_visibility(self):
+        """Alterna entre modo oculto e visível."""
+        if self.isVisible():
+            self.hide_sphere()
+        else:
+            self.show_sphere()
+
+    def hide_sphere(self):
+        """Esconde a esfera (modo oculto)."""
+        self.hide()
+
+    def show_sphere(self):
+        """Mostra a esfera (modo visível)."""
+        self.show()
+        self.raise_()
+        self.activateWindow()

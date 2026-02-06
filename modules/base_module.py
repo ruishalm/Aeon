@@ -50,6 +50,22 @@ class AeonModule(ABC):
     def process(self, command: str) -> str:
         raise NotImplementedError
 
+    def get_brain(self):
+        """Acesso seguro ao Brain."""
+        return self.core_context.get("brain")
+
+    def get_io_handler(self):
+        """Acesso seguro ao IOHandler."""
+        return self.core_context.get("io_handler")
+
+    def get_context_manager(self):
+        """Acesso seguro ao ContextManager."""
+        return self.core_context.get("context")
+
+    def brain_connected(self) -> bool:
+        """Verifica se Brain está disponível."""
+        return self.get_brain() is not None
+
     def check_dependencies(self) -> bool:
         """
         Verifica se dependências (Core ou Outros Módulos) estão disponíveis.

@@ -32,7 +32,7 @@ class BibliotecaModule(AeonModule):
         super().__init__(core_context)
         self.name = "Biblioteca"
         self.dependencies = ["io_handler", "context"]
-        self.triggers = ["livro", "biblioteca", "pesquise"]
+        self.triggers = ["livro", "livros", "biblioteca", "ler"]
         
         base_dir = Path(__file__).resolve().parent
         self.gaveta_path = base_dir / "livros" / "gaveta"

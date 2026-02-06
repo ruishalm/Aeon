@@ -19,7 +19,8 @@ class ControleModule(AeonModule):
             "conectar", "online", "reconectar",
             "instalar offline", "baixar modelos", "instalar ollama",
             "calibrar microfone", "ajustar audio", "recalibrar",
-            "diagnostico", "diagnostico", "verificar modulos", "verificar modulos"
+            "diagnostico", "diagnostico", "verificar modulos", "verificar modulos",
+            "modo visivel", "aparecer", "ficar visivel", "mostrar"
         ]
 
     @property
@@ -60,6 +61,8 @@ class ControleModule(AeonModule):
             return self.instalar_offline()
         if "calibrar microfone" in command or "ajustar audio" in command or "recalibrar" in command:
             return self.recalibrar_microfone()
+        if "modo visivel" in command or "aparecer" in command or "ficar visivel" in command or "mostrar" in command:
+            return self.toggle_modo_visivel()
         return ""
 
     # --- Metodos de Ferramentas para a IA ---
@@ -173,3 +176,12 @@ class ControleModule(AeonModule):
                 }
             }
         ]
+
+    def toggle_modo_visivel(self) -> str:
+        """Mostra a esfera (modo visível)."""
+        gui = self.core_context.get("gui")
+        if gui and hasattr(gui, "show_sphere"):
+            gui.show_sphere()
+            return "Modo visível ativado. Estou aqui!"
+        return "Interface gráfica não disponível."
+

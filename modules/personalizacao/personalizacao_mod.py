@@ -95,7 +95,7 @@ class PersonalizacaoModule(AeonModule):
                 prefs = config_manager.get_system_data("user_prefs", {})
                 prefs[key.strip()] = value.strip()
                 config_manager.set_system_data("user_prefs", prefs)
-                return f"Entendido. Vou lembrar que {key.strip()} e {value.strip()}."
+                return f"Certo. Vou lembrar que {key.strip()} é {value.strip()}."
             else:
                 return "Nao entendi. Use o formato 'lembre que [algo] e [valor]'."
 

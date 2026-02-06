@@ -24,6 +24,18 @@ class SingularityModule(AeonModule):
     def process(self, command: str) -> str:
         mm = self.core_context.get("module_manager")
 
+        # Comando para cancelar/sair da Singularidade a qualquer momento
+        if any(x in command.lower() for x in ["cancelar", "sair", "parar", "voltar", "nao"]):
+            self.step = 0
+            self.mode = None
+            self.temp_data = {}
+            if mm:
+                try:
+                    mm.release_focus()
+                except Exception:
+                    pass
+            return "Singularidade cancelada. Voltando ao modo normal."
+
         # Se ja estiver em um fluxo interativo
         if self.step > 0:
             # Por compatibilidade com testes, qualquer step>0 e tratado como fluxo de criacao

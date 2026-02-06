@@ -13,7 +13,11 @@ class LembreteModule(AeonModule):
     def __init__(self, core_context):
         super().__init__(core_context)
         self.name = "Lembretes"
-        self.triggers = ["lembrete", "tarefa", "lembretes", "tarefas"]
+        # Adiciona sinônimos comuns como 'alarme', 'timer', 'temporizador'
+        self.triggers = [
+            "lembrete", "tarefa", "lembretes", "tarefas", "alarme", "timer", "temporizador", "lembre",
+            "coloca um alarme", "define alarme", "define um alarme", "me lembra", "lembre-me", "lembra-me", "me lembr", "me lembrar"
+        ]
         self.thread = None
         self.is_running = False
 
@@ -31,6 +35,21 @@ class LembreteModule(AeonModule):
 
     def get_tools(self) -> List[Dict[str, Any]]:
         return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "Lembretes.set_timer",
+                    "description": "Define um timer/alarme que vai despertar em X minutos ou segundos.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "duracao": {"type": "number", "description": "Duracao em segundos. Ex: 300 para 5 minutos"},
+                            "descricao": {"type": "string", "description": "Descricao do timer. Ex: 'Lembrete de reuniao'"}
+                        },
+                        "required": ["duracao"]
+                    }
+                }
+            },
             {
                 "type": "function",
                 "function": {
@@ -111,19 +130,63 @@ class LembreteModule(AeonModule):
 
     def process(self, command: str) -> str:
         # O metodo process agora e apenas um fallback para o trigger "listar"
-        if "listar" in command or "quais sao" in command:
+        cmd = command.lower()
+        if "listar" in cmd or "quais sao" in cmd:
             return self.listar_lembretes()
+
+        # Suporta comandos naturais para timers/alarme: "coloca um timer em 30 segundos" / "coloca um timer daqui 10"
+        if "timer" in cmd or "alarme" in cmd:
+            try:
+                # Extrai duracao em segundos
+                # Formatos: 'em 30 segundos', 'daqui 10', 'daqui 10 minutos', 'em 1 minuto'
+                m = re.search(r'(?:em|daqui)\s+(\d+)\s*(segundos|segundo|s|minutos|minuto|m)?', cmd)
+                if m:
+                    n = int(m.group(1))
+                    unit = m.group(2) or 'segundos'
+                    if 'min' in unit:
+                        dur = n * 60
+                    else:
+                        dur = n
+                    desc_match = re.search(r'(?:(?:timer|alarme)\s*(?:de|para)?\s*)(.*)', cmd)
+                    descricao = None
+                    if desc_match:
+                        descricao = desc_match.group(1).strip()
+                        # Remove pedaços como 'em 30 segundos' do final
+                        descricao = re.sub(r'(?:em|daqui)\s+\d+.*$', '', descricao).strip()
+                        if not descricao:
+                            descricao = None
+                    return self.set_timer(dur, descricao)
+                else:
+                    return "Diga a duracao do timer, por exemplo: 'coloca um timer em 30 segundos'."
+            except Exception as e:
+                return f"Nao consegui definir o timer: {e}"
+
         return ""
 
     # --- FERRAMENTAS PARA A IA ---
     
-    def criar_lembrete(self, texto: str, prazo: str, prioridade: str = "normal") -> str:
+    def criar_lembrete(self, texto: str = None, prazo: str = None, prioridade: str = "normal") -> str:
         config_manager = self.core_context.get("config_manager")
         try:
-            deadline_local = dateparser.parse(prazo, languages=['pt'], settings={'TIMEZONE': 'local', 'RETURN_AS_TIMEZONE_AWARE': True})
+            # Se o prazo não for fornecido, tenta extrair uma data/hora do próprio texto
+            deadline_local = None
+            if prazo:
+                deadline_local = dateparser.parse(prazo, languages=['pt'], settings={'TIMEZONE': 'local', 'RETURN_AS_TIMEZONE_AWARE': True})
+
+            if not prazo and texto:
+                try:
+                    from dateparser.search import search_dates
+                    found = search_dates(texto, languages=['pt'])
+                    if found:
+                        # Usa a ultima ocorrencia encontrada
+                        deadline_local = found[-1][1]
+                except Exception:
+                    pass
+
             if not texto or not deadline_local:
                 raise ValueError("Texto ou prazo invalidos.")
 
+            # Normaliza para UTC
             deadline_utc = deadline_local.astimezone(timezone.utc)
             
             p_map = {"alta": 1, "normal": 0, "baixa": -1}
@@ -157,10 +220,33 @@ class LembreteModule(AeonModule):
             response += f"- {task['text']} para {deadline_local.strftime('%d/%m %H:%M')} (Prioridade: {task.get('priority', 'Normal')})\n"
         return response
 
-    def marcar_como_concluido(self, texto_tarefa: str) -> str:
-        config_manager = self.core_context.get("config_manager")
-        tasks = config_manager.get_tasks()
-        found = False
+    def set_timer(self, duracao: float, descricao: str = None) -> str:
+        """Define um timer que dispara um alarme após X segundos."""
+        try:
+            if duracao <= 0:
+                return "A duracao deve ser maior que zero."
+            
+            descricao = descricao or "Timer"
+            
+            def timer_thread():
+                time.sleep(duracao)
+                io_handler = self.core_context.get("io_handler")
+                if io_handler:
+                    io_handler.falar(f"{descricao}! Tempo esgotado!")
+                    print(f"[TIMER] Alarme: {descricao}")
+            
+            t = threading.Thread(target=timer_thread, daemon=True)
+            t.start()
+            
+            minutos = int(duracao // 60)
+            segundos = int(duracao % 60)
+            if minutos > 0:
+                return f"Timer de {minutos} minuto{'s' if minutos > 1 else ''} e {segundos} segundo{'s' if segundos != 1 else ''} definido. {descricao}."
+            else:
+                return f"Timer de {segundos} segundo{'s' if segundos != 1 else ''} definido. {descricao}."
+        except Exception as e:
+            return f"Erro ao definir timer: {e}"
+
         for task in tasks:
             if not task.get('done') and texto_tarefa.lower() in task['text'].lower():
                 task['done'] = True

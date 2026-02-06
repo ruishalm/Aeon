@@ -88,12 +88,16 @@ class WebModule(AeonModule):
                 query = query.replace(t, "", 1)
             query = query.strip()
             
-            _, contexto = self.web_search(query) # Ignoramos o titulo aqui
-            if not contexto: return "Nao encontrei conteudo para essa pesquisa."
-            if "erro ao processar" in contexto: return contexto
-            
-            prompt_final = f"Com base no seguinte texto, responda de forma concisa a pergunta: '{query}'\n\nTexto: {contexto}"
-            return brain.pensar(prompt_final)
+            try:
+                titulo, contexto = self.web_search(query) # Ignoramos o titulo aqui
+                if not contexto: return "Nao encontrei conteudo para essa pesquisa."
+                if "erro ao processar" in contexto: return contexto
+                
+                prompt_final = f"Com base no seguinte texto, responda de forma concisa a pergunta: '{query}'\n\nTexto: {contexto}"
+                return brain.pensar(prompt_final)
+            except (IndexError, TypeError, AttributeError) as e:
+                log_display(f"Erro ao processar pesquisa: {e}")
+                return "Desculpe, tive dificuldade em processar a pesquisa. Tente de novo."
 
         # 3. Resumo de URL (generico)
         if "http:" in cmd_lower or "https:" in cmd_lower or "www." in cmd_lower:
@@ -128,7 +132,13 @@ class WebModule(AeonModule):
         """Busca uma query ou extrai titulo e conteudo de uma URL. Retorna (titulo, conteudo)."""
         log_display(f"Processando Web: {query[:60]}")
         try:
-            url = query if query.startswith("http") else list(search(query, num_results=1, lang="pt"))[0]
+            if query.startswith("http"):
+                url = query
+            else:
+                search_results = list(search(query, num_results=1, lang="pt"))
+                if not search_results:
+                    return "Erro", "Nenhum resultado encontrado para essa busca."
+                url = search_results[0]
             
             headers = {'User-Agent': 'Mozilla/5.0'}
             response = requests.get(url, headers=headers, timeout=10)
